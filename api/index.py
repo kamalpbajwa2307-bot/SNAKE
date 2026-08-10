@@ -3971,6 +3971,9 @@ def edit_entry(table_name, row_id):
         else:
             new_status, approved_by = entry.get('status'), entry.get('approved_by', '')
 
+        persons_dict = {p['id']: p['name'] for p in persons}
+        dasti_dict = {d['id']: d['name'] for d in dasti_persons}
+
         if request.form.get('is_split_edit') == '1':
             master_desc = request.form['description'].strip()
             natures = request.form.getlist('txn_nature[]')
@@ -3987,12 +3990,8 @@ def edit_entry(table_name, row_id):
             for coll, docs_list in linked_docs.items():
                 for d in docs_list:
                     batch.delete(db.collection(coll).document(d['id']))
-
-            persons_dict = {p['id']: p['name'] for p in persons}
-            dasti_dict = {d['id']: d['name'] for d in dasti_persons}
             
             leg_ops = []
-
             has_out = any(r[1] in ('slip_in', 'advance') for r in valid_rows)
             has_in = any(r[1] == 'receive_cash' for r in valid_rows)
             master_type = 'split_master_in' if (has_in and not has_out) else 'split_master_out'
@@ -4016,14 +4015,26 @@ def edit_entry(table_name, row_id):
                     }))
                 elif account_raw.startswith('person_'):
                     pid = account_raw.split('_')[1]
+                    person_name = persons_dict.get(pid, 'Person')
                     type_val = 'advance' if txn_nature == 'advance' else 'settlement'
                     leg_ops.append(('person_ledger', {**base_txn, 'person_id': pid, 'description': master_desc, 'type': type_val, 'voucher_nature': txn_nature}))
+                    
+                    if txn_nature == 'advance':
+                        leg_ops.append(('transactions', {**base_txn, 'description': f"Transfer Out ({person_name}): {master_desc}", 'type': 'dasti_out', 'voucher_nature': 'advance'}))
+                    elif txn_nature == 'receive_cash':
+                        leg_ops.append(('transactions', {**base_txn, 'description': f"Transfer In ({person_name}): {master_desc}", 'type': 'income', 'voucher_nature': 'receive_cash'}))
+                        
                 elif account_raw.startswith('dasti_'):
                     pid = account_raw.split('_')[1]
+                    person_name = dasti_dict.get(pid, 'Dasti')
                     type_val = 'advance' if txn_nature == 'advance' else 'settlement'
                     leg_ops.append(('dasti_ledger', {**base_txn, 'dasti_person_id': pid, 'description': master_desc, 'type': type_val, 'voucher_nature': txn_nature}))
+                    
+                    if txn_nature == 'advance':
+                        leg_ops.append(('transactions', {**base_txn, 'description': f"Dasti Out ({person_name}): {master_desc}", 'type': 'dasti_voucher_out', 'voucher_nature': 'advance'}))
+                    elif txn_nature == 'receive_cash':
+                        leg_ops.append(('transactions', {**base_txn, 'description': f"Dasti In ({person_name}): {master_desc}", 'type': 'dasti_voucher_in', 'voucher_nature': 'receive_cash'}))
 
-            # Extract unique categories dynamically from the split entries (Safe Loop Format)
             unique_cats = []
             for r in valid_rows:
                 if r[0] not in unique_cats:
@@ -4096,7 +4107,6 @@ def edit_entry(table_name, row_id):
 
             base_txn = {'user_id': firm_id, 'date': date_val, 'time': time_val, 'payment_mode': mode, 'category': category, 'amount': amount, 'link_id': link_id, 'status': new_status, 'approved_by': approved_by, 'deleted': entry.get('deleted', 0), 'created_at': entry.get('created_at', time.time()), 'is_flagged': is_flagged, 'voucher_nature': new_nature}
 
-
             for coll, docs_list in linked_docs.items():
                 for d in docs_list: batch.delete(db.collection(coll).document(d['id']))
 
@@ -4105,7 +4115,6 @@ def edit_entry(table_name, row_id):
             elif new_account_type == 'person':
                 if new_nature == 'slip_in':
                     batch.set(db.collection('person_ledger').document(), {**base_txn, 'person_id': new_primary_id, 'description': desc, 'type': 'settlement'})
-                    # CORRECTED: Removed Main Book deduction here
                 elif new_nature == 'advance':
                     batch.set(db.collection('person_ledger').document(), {**base_txn, 'person_id': new_primary_id, 'description': desc, 'type': 'advance'})
                     batch.set(db.collection('transactions').document(), {**base_txn, 'description': f"Transfer Out ({new_person_name}): {desc}", 'type': 'dasti_out'})
@@ -4115,7 +4124,7 @@ def edit_entry(table_name, row_id):
             elif new_account_type == 'dasti':
                 if new_nature == 'slip_in':
                     batch.set(db.collection('dasti_ledger').document(), {**base_txn, 'dasti_person_id': new_primary_id, 'description': desc, 'type': 'settlement'})
-                    batch.set(db.collection('transactions').document(), {**base_txn, 'description': f"Dasti Slip ({new_person_name}): {desc}", 'type': 'batch_ledger_out'})
+                    # FIX: Safely removed the incorrect Main Cashbook deduction
                 elif new_nature == 'advance':
                     batch.set(db.collection('dasti_ledger').document(), {**base_txn, 'dasti_person_id': new_primary_id, 'description': desc, 'type': 'advance'})
                     batch.set(db.collection('transactions').document(), {**base_txn, 'description': f"Dasti Out ({new_person_name}): {desc}", 'type': 'dasti_voucher_out'})
@@ -4132,6 +4141,7 @@ def edit_entry(table_name, row_id):
         return redirect(request.referrer or url_for('index'))
 
     return render_template_string(EDIT_TEMPLATE, entry=entry, table_name=table_name, categories=existing_cats, persons=persons, dasti_persons=dasti_persons, approver_names=approver_names, has_link=has_link, current_account_type=current_account_type, current_primary_id=current_primary_id, current_nature=current_nature, username=session['username'], is_split=is_split, splits_data=splits_data)
+
 
 @app.route('/add_express', methods=['POST'])
 def add_express():
@@ -4159,6 +4169,7 @@ def add_express():
         'is_flagged': 0
     })
     return redirect(request.referrer or url_for('index'))
+
 @app.route('/add_split_voucher', methods=['POST'])
 def add_split_voucher():
     if 'user_id' not in session: return redirect(url_for('login'))
@@ -5108,6 +5119,74 @@ def bulk_edit_date():
             return redirect(url_for('bulk_edit_date'))
 
     return render_template_string(BULK_EDIT_DATE_TEMPLATE, results=results, has_searched=has_searched, start_date=start_date, end_date=end_date, search_amount=search_amount, search_desc=search_desc, username=session['username'], active_page='bulk_date')
+@app.route('/repair_ledger_math')
+def repair_ledger_math():
+    if 'user_id' not in session or session.get('role') != 'superadmin':
+        return redirect(url_for('index'))
+    
+    firm_id = session['firm_id']
+    batch = db.batch()
+    update_count = 0
+    fixes_applied = 0
+    
+    # 1. PURGE BAD SLIP DEDUCTIONS FROM MAIN BOOK
+    docs = db.collection('transactions').where('user_id', '==', firm_id).where('type', '==', 'batch_ledger_out').stream()
+    for d in docs:
+        batch.delete(d.reference)
+        fixes_applied += 1
+        update_count += 1
+        if update_count >= 400:
+            batch.commit()
+            batch = db.batch()
+            update_count = 0
+            
+    # 2. RESTORE MISSING SPLIT VOUCHER LEGS FOR ADVANCES & RECEIPTS
+    persons_dict = {p.id: p.to_dict().get('name', 'Person') for p in db.collection('persons').where('user_id', '==', firm_id).stream()}
+    dasti_dict = {d.id: d.to_dict().get('name', 'Dasti') for d in db.collection('dasti_persons').where('user_id', '==', firm_id).stream()}
+
+    for coll, t_out, t_in, dict_ref in [('person_ledger', 'dasti_out', 'income', persons_dict), ('dasti_ledger', 'dasti_voucher_out', 'dasti_voucher_in', dasti_dict)]:
+        p_docs = db.collection(coll).where('user_id', '==', firm_id).where('deleted', '==', 0).stream()
+        for p in p_docs:
+            data = p.to_dict()
+            link_id = data.get('link_id')
+            txn_nature = data.get('voucher_nature')
+            
+            if txn_nature in ('advance', 'receive_cash'):
+                # Check if the Main Book Leg actually exists
+                tx_leg = list(db.collection('transactions').where('link_id', '==', link_id).where('user_id', '==', firm_id).where('amount', '==', data.get('amount')).stream())
+                
+                found_leg = False
+                for tx in tx_leg:
+                    tx_type = tx.to_dict().get('type')
+                    if tx_type in (t_out, t_in, 'income', 'dasti_out', 'dasti_voucher_out', 'dasti_voucher_in'):
+                        found_leg = True
+                        break
+                        
+                if not found_leg:
+                    p_name = dict_ref.get(data.get('person_id') or data.get('dasti_person_id'), 'Account')
+                    base_txn = {
+                        'user_id': firm_id, 'date': data.get('date'), 'time': data.get('time'), 
+                        'payment_mode': data.get('payment_mode', 'Cash'), 'category': data.get('category', 'General'), 
+                        'amount': data.get('amount'), 'link_id': link_id, 'status': data.get('status', 'approved'), 
+                        'approved_by': data.get('approved_by', ''), 'deleted': 0, 'created_at': data.get('created_at', time.time()), 
+                        'is_flagged': data.get('is_flagged', 0), 'voucher_nature': txn_nature
+                    }
+                    
+                    desc = f"Missing Split Leg ({p_name}): {data.get('description', '')}"
+                    type_val = t_out if txn_nature == 'advance' else t_in
+                    
+                    batch.set(db.collection('transactions').document(), {**base_txn, 'description': desc, 'type': type_val})
+                    fixes_applied += 1
+                    update_count += 1
+                    if update_count >= 400:
+                        batch.commit()
+                        batch = db.batch()
+                        update_count = 0
+    
+    if update_count > 0:
+        batch.commit()
+        
+    return f"✅ Database Math Repaired! {fixes_applied} missing or broken connections were successfully repaired in the Main Cashbook."
 
 if __name__ == '__main__':
-    pass
+    app.run(debug=True, use_reloader=False)
