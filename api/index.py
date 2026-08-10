@@ -280,8 +280,9 @@ NAVBAR_HTML = SPLASH_HTML + '''<div class="navbar no-print" style="background: l
     
     {% if session.get('role') == 'superadmin' %}
         <a href="/manage_users" class="{% if active_page == 'users' %}active{% endif %}" style="color: #e879f9; font-weight: 800; font-size: 1.05em; text-shadow: 1px 1px 3px rgba(0,0,0,0.8); background: rgba(232, 121, 249, 0.15);">⚙️ Users</a>
+        <a href="/audit_ledger" class="{% if active_page == 'audit' %}active{% endif %}" style="color: #fb923c; font-weight: 800; font-size: 1.05em; text-shadow: 1px 1px 3px rgba(0,0,0,0.8); background: rgba(251, 146, 60, 0.15);">🕵️‍♂️ Audit</a>
     {% endif %}
-    
+
     <!-- 📅 MONTHLY CLOSING SELECTOR & LOCK BADGE -->
     <div class="no-print" style="margin-left: auto; display: flex; align-items: center; gap: 8px; background: rgba(0,0,0,0.3); padding: 5px 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2);">
         <span style="color: #facc15; font-size: 0.85em; font-weight: 800; text-transform: uppercase;">Closing:</span>
@@ -2345,6 +2346,472 @@ MASS_DELETE_TEMPLATE = '''<!DOCTYPE html><html><head><title>System Data Cleanup<
 </script>
 </body></html>'''
 
+AUDIT_TEMPLATE = '''<!DOCTYPE html><html><head><title>Ledger Audit & Diagnostics</title>''' + BASE_STYLE + '''</head><body>
+    <div class="container">''' + NAVBAR_HTML + '''
+        <h2 style="color: var(--primary); margin-bottom: 20px;">🕵️‍♂️ System Audit & Data Reconciliation</h2>
+        
+        <div class="card" style="background: #f8fafc; border: 2px solid #38bdf8; padding: 20px; margin-bottom: 20px;">
+            <h3 style="margin-top:0; color: #0369a1;">✅ Approved (Finalized) Entries</h3>
+            <p style="color: #475569; font-size: 0.9em; margin-top: -10px;">Comparing raw database sums vs. what the Dashboard calculates.</p>
+            <div style="display: flex; gap: 20px; flex-wrap: wrap;">
+                <div style="flex: 1; background: white; padding: 15px; border-radius: 8px; border: 1px solid #bae6fd;">
+                    <h4 style="color: var(--success); margin-top: 0;">➕ Receipts (IN)</h4>
+                    <p><strong>Dashboard Calculates:</strong> ₹{{ "{:,.2f}".format(dash_in) }}</p>
+                    <p><strong>Raw Database Sum:</strong> ₹{{ "{:,.2f}".format(raw_in) }}</p>
+                    <p><strong>Total Entries Count:</strong> {{ count_in }}</p>
+                    <hr>
+                    <p style="color: {% if dash_in == raw_in %}green{% else %}red{% endif %}; font-weight: bold;">Difference: ₹{{ "{:,.2f}".format(raw_in - dash_in) }}</p>
+                </div>
+                <div style="flex: 1; background: white; padding: 15px; border-radius: 8px; border: 1px solid #bae6fd;">
+                    <h4 style="color: var(--danger); margin-top: 0;">➖ Payments (OUT)</h4>
+                    <p><strong>Dashboard Calculates:</strong> ₹{{ "{:,.2f}".format(dash_out) }}</p>
+                    <p><strong>Raw Database Sum:</strong> ₹{{ "{:,.2f}".format(raw_out) }}</p>
+                    <p><strong>Total Entries Count:</strong> {{ count_out }}</p>
+                    <hr>
+                    <p style="color: {% if dash_out == raw_out %}green{% else %}red{% endif %}; font-weight: bold;">Difference: ₹{{ "{:,.2f}".format(raw_out - dash_out) }}</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="card" style="background: #fffbeb; border: 2px solid #fcd34d; padding: 20px; margin-bottom: 20px;">
+            <h3 style="margin-top:0; color: #b45309;">⏳ Temporary (Pending) Entries</h3>
+            <div style="display: flex; gap: 20px; flex-wrap: wrap;">
+                <div style="flex: 1; background: white; padding: 15px; border-radius: 8px; border: 1px dashed #fcd34d;">
+                    <h4 style="color: var(--success); margin-top: 0;">➕ Temp Receipts (IN)</h4>
+                    <p><strong>Dashboard Calculates:</strong> ₹{{ "{:,.2f}".format(temp_dash_in) }}</p>
+                    <p><strong>Raw Database Sum:</strong> ₹{{ "{:,.2f}".format(temp_raw_in) }}</p>
+                    <p><strong>Total Entries Count:</strong> {{ temp_count_in }}</p>
+                    <hr style="border: 0; border-top: 1px solid #fcd34d;">
+                    <p style="color: {% if temp_dash_in == temp_raw_in %}green{% else %}red{% endif %}; font-weight: bold;">Difference: ₹{{ "{:,.2f}".format(temp_raw_in - temp_dash_in) }}</p>
+                </div>
+                <div style="flex: 1; background: white; padding: 15px; border-radius: 8px; border: 1px dashed #fcd34d;">
+                    <h4 style="color: var(--danger); margin-top: 0;">➖ Temp Payments (OUT)</h4>
+                    <p><strong>Dashboard Calculates:</strong> ₹{{ "{:,.2f}".format(temp_dash_out) }}</p>
+                    <p><strong>Raw Database Sum:</strong> ₹{{ "{:,.2f}".format(temp_raw_out) }}</p>
+                    <p><strong>Total Entries Count:</strong> {{ temp_count_out }}</p>
+                    <hr style="border: 0; border-top: 1px solid #fcd34d;">
+                    <p style="color: {% if temp_dash_out == temp_raw_out %}green{% else %}red{% endif %}; font-weight: bold;">Difference: ₹{{ "{:,.2f}".format(temp_raw_out - temp_dash_out) }}</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- GRAND COMBINED TOTALS -->
+        <div class="card" style="background: #f0fdf4; border: 2px solid #22c55e; padding: 20px; margin-bottom: 20px; text-align: center;">
+            <h3 style="margin-top:0; color: #166534;">🌍 Grand Combined Balance (Approved + Temporary)</h3>
+            <p style="font-size: 1.2em; margin-bottom: 0;">
+                <strong style="color: #15803d;">Combined Receipts (+ IN):</strong> ₹{{ "{:,.2f}".format(dash_in + temp_dash_in) }} &nbsp;&nbsp;|&nbsp;&nbsp; 
+                <strong style="color: #b91c1c;">Combined Payments (- OUT):</strong> ₹{{ "{:,.2f}".format(dash_out + temp_dash_out) }}
+            </p>
+            <h2 style="margin: 10px 0 0 0; font-size: 2.5em; color: {% if ((dash_in + temp_dash_in) - (dash_out + temp_dash_out)) >= 0 %}#15803d{% else %}#b91c1c{% endif %};">
+                NET TOTAL: ₹{{ "{:,.2f}".format((dash_in + temp_dash_in) - (dash_out + temp_dash_out)) }}
+            </h2>
+        </div>
+
+        <!-- DYNAMIC DUPLICATE DETECTION FINDER -->
+        <div class="card" style="padding: 0; margin-bottom: 20px; border: 2px solid #fdba74;" id="duplicates-section">
+            <div style="padding: 15px 20px; background: #ffedd5; border-bottom: 1px solid #fdba74; display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 15px;">
+                
+                <div style="flex: 1; min-width: 350px;">
+                    <h3 style="margin: 0; color: #c2410c;">🔍 Dynamic Duplicate Finder ({{ duplicates|length }} Groups Found)</h3>
+                    <div style="font-size: 0.9em; color: #9a3412; margin-top: 5px; margin-bottom: 15px;">
+                        Select the exact conditions to define a "Duplicate". (Time is intentionally ignored).
+                    </div>
+                    
+                    <!-- DYNAMIC SEARCH CONDITIONS FORM -->
+                    <form method="GET" action="/audit_ledger#duplicates-section" style="display: flex; gap: 15px; flex-wrap: wrap; align-items: center; background: white; padding: 10px 15px; border-radius: 8px; border: 1px solid #fcd34d;">
+                        <strong style="color: #b45309; font-size: 0.9em;">Match By:</strong>
+                        <label style="cursor: pointer; font-size: 0.9em; font-weight: bold;"><input type="checkbox" name="match_criteria" value="date" {% if 'date' in match_criteria %}checked{% endif %}> Date</label>
+                        <label style="cursor: pointer; font-size: 0.9em; font-weight: bold;"><input type="checkbox" name="match_criteria" value="amount" {% if 'amount' in match_criteria %}checked{% endif %}> Amount</label>
+                        <label style="cursor: pointer; font-size: 0.9em; font-weight: bold;"><input type="checkbox" name="match_criteria" value="type" {% if 'type' in match_criteria %}checked{% endif %}> Type</label>
+                        <label style="cursor: pointer; font-size: 0.9em; font-weight: bold;"><input type="checkbox" name="match_criteria" value="category" {% if 'category' in match_criteria %}checked{% endif %}> Category</label>
+                        <label style="cursor: pointer; font-size: 0.9em; font-weight: bold;"><input type="checkbox" name="match_criteria" value="description" {% if 'description' in match_criteria %}checked{% endif %}> Detail/Desc</label>
+                        
+                        <button type="submit" class="btn btn-sm" style="background: #ea580c; color: white; margin-left: auto; padding: 6px 15px; font-weight: bold; border-radius: 6px;">⚙️ Find Duplicates</button>
+                    </form>
+                </div>
+                
+                <!-- MANUAL TEXT FILTER -->
+                <div style="display: flex; align-items: center; gap: 5px; background: white; padding: 5px; border-radius: 8px; border: 1px solid #fdba74; align-self: flex-end;">
+                    <input type="text" id="dupSearchInput" placeholder="Filter this list..." style="border: none; outline: none; padding: 5px; font-size: 1em; width: 150px;">
+                    <button type="button" class="btn" onclick="searchDuplicates()" style="background: #9a3412; color: white; padding: 6px 12px; margin: 0; border-radius: 6px;">🔍 Filter</button>
+                </div>
+            </div>
+            
+            <table style="width: 100%; border: none; table-layout: fixed;">
+                <thead>
+                    <tr style="background: #f8fafc;">
+                        <th style="padding-left: 20px; width: 30%;">Matched Criteria (Group)</th>
+                        <th style="text-align: center; width: 10%;">Count</th>
+                        <th style="padding-left: 20px; width: 60%;">Individual Duplicate Entries (Compare & Delete)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for dup in duplicates %}
+                    <tr class="duplicate-row" style="border-bottom: 2px solid #e5e7eb;">
+                        <td style="padding-left: 20px; vertical-align: top; padding-top: 15px;">
+                            <div style="font-size: 1.05em; color: #1e293b; font-weight: 500; line-height: 1.8;">
+                                {{ dup.display_text | safe }}
+                            </div>
+                        </td>
+                        <td style="color: #dc2626; font-weight: bold; font-size: 1.5em; vertical-align: top; padding-top: 15px; text-align: center;">
+                            {{ dup.count }}x
+                        </td>
+                        <td style="vertical-align: top; padding: 15px 20px;">
+                            {% for entry in dup.entries %}
+                                <div style="margin-bottom: 12px; background: {% if entry.status == 'pending' %}#fffbeb{% else %}#f0fdf4{% endif %}; padding: 15px; border-radius: 8px; border: 1px solid {% if entry.status == 'pending' %}#fcd34d{% else %}#bbf7d0{% endif %}; box-shadow: 0 2px 4px rgba(0,0,0,0.02);">
+                                    
+                                    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; border-bottom: 1px dashed #cbd5e1; padding-bottom: 10px;">
+                                        <div>
+                                            <strong style="color: #334155; font-size: 1.1em;">🕒 {{ entry.time }}</strong>
+                                            {% if 'date' not in match_criteria %} <span style="color: #64748b; font-size: 0.9em; margin-left: 5px;">({{ entry.date }})</span>{% endif %}
+                                        </div>
+                                        <div>
+                                            {% if entry.status == 'pending' %}
+                                                <span class="badge" style="background:#fef3c7; color:#b45309; border: 1px solid #fcd34d;">⏳ TEMP</span>
+                                            {% else %}
+                                                <span class="badge" style="background:#d1fae5; color:#065f46; border: 1px solid #6ee7b7;">✅ APPRV: {{ entry.approved_by or 'Self' }}</span>
+                                            {% endif %}
+                                        </div>
+                                    </div>
+                                    
+                                    <div style="font-size: 0.9em; color: #475569; margin-bottom: 12px; line-height: 1.6;">
+                                        <strong>Voucher Nature:</strong> <span style="color: #0369a1; font-weight: bold; text-transform: uppercase;">{{ entry.voucher_nature }}</span> &nbsp;|&nbsp; 
+                                        <strong>System Type:</strong> <span style="color: #8b5cf6;">{{ entry.type }}</span><br>
+                                        <strong>Category:</strong> {{ entry.category }}<br>
+                                        <strong>Detail / Ledger Desc:</strong> <span style="color: #1e293b;">{{ entry.description }}</span>
+                                    </div>
+                                    
+                                    <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                                        <a href="/edit/transactions/{{ entry.id }}" target="_blank" class="btn btn-sm" style="background: #3b82f6; color: white; padding: 6px 14px; text-decoration: none; border-radius: 6px; font-weight: bold;" title="Open this ledger entry in a new tab">🔍 Open & Check Details</a>
+                                        
+                                        <a href="/delete/transactions/{{ entry.id }}" class="btn btn-sm btn-danger" style="padding: 6px 14px; text-decoration: none; border-radius: 6px; font-weight: bold; background: #ef4444;" onclick="return confirm('Permanently delete this specific duplicate entry?');" title="Delete this entry immediately">🗑️ Delete Direct</a>
+                                    </div>
+                                </div>
+                            {% endfor %}
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="3" style="text-align: center; padding: 40px; color: #166534; font-weight: bold; font-size: 1.1em;">
+                            ✅ No duplicate groups detected based on your selected criteria.
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            
+            <!-- TOTAL EXCESS AMOUNT FOOTER -->
+            {% if duplicates|length > 0 %}
+            <div style="background: #ffedd5; padding: 15px 25px; border-top: 2px dashed #fdba74; display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <h4 style="margin: 0; color: #c2410c; font-size: 1.15em;">💡 Estimated Financial Impact</h4>
+                    <span style="color: #9a3412; font-size: 0.9em;">Total excess amount throwing off the ledger (assuming you keep exactly 1 entry per group and delete the rest).</span>
+                </div>
+                <div style="text-align: right;">
+                    <span style="font-size: 0.9em; color: #9a3412; font-weight: bold; text-transform: uppercase;">Potential Difference</span><br>
+                    <span style="font-size: 1.8em; font-weight: bold; color: #dc2626;">₹{{ "{:,.2f}".format(total_duplicate_excess) }}</span>
+                </div>
+            </div>
+            {% endif %}
+            
+        </div>
+
+        <div class="card" style="padding: 0;">
+            <h3 style="padding: 15px 20px; margin: 0; background: #fee2e2; border-bottom: 1px solid var(--border); color: #991b1b;">
+                ⚠️ Detected Data Anomalies & Errors ({{ anomalies|length }})
+            </h3>
+            <table style="width: 100%; border: none;">
+                <thead>
+                    <tr style="background: #f8fafc;">
+                        <th style="padding-left: 20px;">Issue Type</th>
+                        <th>Date & Time</th>
+                        <th>Details / Category</th>
+                        <th style="text-align: right;">Amount</th>
+                        <th style="text-align: center; padding-right: 20px;">Link / ID</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for anomaly in anomalies %}
+                    <tr>
+                        <td style="padding-left: 20px; color: #dc2626; font-weight: bold;">{{ anomaly.issue }}</td>
+                        <td>{{ anomaly.data.date }}<br><small>{{ anomaly.data.time }}</small></td>
+                        <td>
+                            {% if anomaly.data.status == 'pending' %}<span class="badge" style="background:#fef3c7; color:#b45309;">TEMP</span>{% endif %}
+                            <span class="badge badge-mode">{{ anomaly.data.type }}</span><br>{{ anomaly.data.description }}
+                        </td>
+                        <td style="text-align: right;">₹{{ "{:,.2f}".format(anomaly.data.amount) }}</td>
+                        <td style="text-align: center; padding-right: 20px;">
+                            <a href="/edit/transactions/{{ anomaly.data.id }}" target="_blank" class="btn btn-sm btn-outline">Inspect</a>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="5" style="text-align: center; padding: 40px; color: #166534; font-weight: bold;">
+                            ✅ No structural anomalies or broken splits found.
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- SCRIPT FOR SEARCHING DUPLICATES -->
+    <script>
+        function searchDuplicates() {
+            let input = document.getElementById("dupSearchInput").value.toLowerCase().replace(/,/g, '');
+            let rows = document.querySelectorAll("tr.duplicate-row");
+            
+            rows.forEach(row => {
+                let originalText = row.innerText.toLowerCase();
+                let textWithoutCommas = originalText.replace(/,/g, '');
+                
+                if (originalText.includes(input) || textWithoutCommas.includes(input)) {
+                    row.style.display = "";
+                } else {
+                    row.style.display = "none";
+                }
+            });
+        }
+        
+        document.getElementById("dupSearchInput").addEventListener("keypress", function(event) {
+            if (event.key === "Enter") {
+                event.preventDefault();
+                searchDuplicates();
+            }
+        });
+    </script>
+</body></html>'''
+
+BULK_EDIT_DATE_TEMPLATE = '''<!DOCTYPE html><html><head><title>Bulk Date Correction</title>''' + BASE_STYLE + '''</head><body>
+    <div class="container">''' + NAVBAR_HTML + '''
+        <div class="card">
+            <h3 style="margin-top: 0; color: var(--primary);">📅 Search & Bulk Update Dates</h3>
+            <form action="/bulk_edit_date" method="POST" style="display: flex; gap: 15px; align-items: flex-end; flex-wrap: wrap;">
+                <input type="hidden" name="action" value="search">
+                <div class="form-group flex-1" style="min-width: 130px;"><label>From Date</label><input type="date" name="start_date" value="{{ start_date }}" required></div>
+                <div class="form-group flex-1" style="min-width: 130px;"><label>To Date</label><input type="date" name="end_date" value="{{ end_date }}" required></div>
+                <div class="form-group flex-1" style="min-width: 130px;"><label>Amount (Opt)</label><input type="number" step="0.01" name="search_amount" value="{{ search_amount }}" placeholder="Exact ₹"></div>
+                <div class="form-group flex-2" style="min-width: 180px; flex: 2;"><label>Detail / Desc (Opt)</label><input type="text" name="search_desc" value="{{ search_desc }}" placeholder="Search text..."></div>
+                <button class="btn" style="background:indigo; height: 45px; padding: 10px 25px;" type="submit">🔍 Search</button>
+            </form>
+        </div>
+        
+        {% if has_searched %}
+        <div class="card" style="padding: 0;">
+            <form action="/bulk_edit_date" method="POST" onsubmit="return confirm('Are you sure you want to change the date for ALL selected entries?');">
+                <input type="hidden" name="action" value="update_dates">
+                
+                <div style="padding: 15px 20px; background: #fffbeb; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 15px;">
+                    <div style="display: flex; gap: 15px; align-items: flex-end; flex-wrap: wrap;">
+                        <div class="form-group" style="margin-bottom: 0; min-width: 250px;">
+                            <label style="color:#92400e;">Set New Date For Selected Entries:</label>
+                            <input type="date" name="new_date" required style="border-color: var(--warning); font-weight:bold; background: white;">
+                        </div>
+                        <button type="submit" class="btn btn-warning" style="height: 43px; padding: 0 25px;">✏️ Update Selected Dates</button>
+                    </div>
+
+                    <!-- DYNAMIC SUMMARY BAR -->
+                    <div style="display: flex; flex-wrap: wrap; gap: 20px; align-items: center; background: #fef3c7; padding: 10px 15px; border-radius: 8px; border: 1px solid #fde68a;">
+                        <div style="display: flex; flex-direction: column; min-width: 100px;">
+                            <span style="color:#92400e; font-weight:bold; font-size: 0.9em;">Total Selected</span>
+                            <strong id="calc-count" style="font-size: 1.3em;">0</strong>
+                        </div>
+                        <div style="display: flex; flex-direction: column; min-width: 100px;">
+                            <span style="color:#047857; font-weight:bold; font-size: 0.9em;">Approved</span>
+                            <strong id="calc-approved" style="font-size: 1.3em;">0</strong>
+                        </div>
+                        <div style="display: flex; flex-direction: column; min-width: 100px;">
+                            <span style="color:#b45309; font-weight:bold; font-size: 0.9em;">Temp (Pending)</span>
+                            <strong id="calc-temp" style="font-size: 1.3em;">0</strong>
+                        </div>
+                        
+                        <div style="border-left: 2px solid #fcd34d; height: 35px; margin: 0 10px;"></div>
+
+                        <div style="display: flex; flex-direction: column; min-width: 140px;">
+                            <span style="color: var(--success); font-weight:bold; font-size: 0.9em;">Total Receipts (+)</span>
+                            <strong id="calc-positive" style="font-size: 1.3em;">₹0.00</strong>
+                        </div>
+                        <div style="display: flex; flex-direction: column; min-width: 140px;">
+                            <span style="color: var(--danger); font-weight:bold; font-size: 0.9em;">Total Payments (-)</span>
+                            <strong id="calc-negative" style="font-size: 1.3em;">₹0.00</strong>
+                        </div>
+
+                        <!-- TARGET MATCH INPUTS -->
+                        <div style="display: flex; gap: 10px; margin-left: auto; background: white; padding: 8px; border-radius: 6px; border: 1px dashed #d1d5db;">
+                            <div class="form-group" style="margin: 0;">
+                                <label style="font-size: 0.75em; color: var(--success);">Target Match (+)</label>
+                                <input type="number" id="target-pos" placeholder="e.g. 5000" onkeyup="calculateSelection()" onchange="calculateSelection()" style="padding: 4px; width: 100px; font-size: 0.9em; border-color: var(--success);">
+                            </div>
+                            <div class="form-group" style="margin: 0;">
+                                <label style="font-size: 0.75em; color: var(--danger);">Target Match (-)</label>
+                                <input type="number" id="target-neg" placeholder="e.g. 1200" onkeyup="calculateSelection()" onchange="calculateSelection()" style="padding: 4px; width: 100px; font-size: 0.9em; border-color: var(--danger);">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <table style="width: 100%; border: none;">
+                    <tr>
+                        <th style="padding-left: 20px; width: 40px;">
+                            <input type="checkbox" id="master-checkbox" onclick="toggleAllCheckboxes(this)" style="width:16px; height:16px; cursor:pointer;">
+                        </th>
+                        <th>Current Date & Time</th>
+                        <th>Category / Detail</th>
+                        <th style="text-align: right; padding-right: 20px;">Amount</th>
+                        <th style="text-align: center;">Act</th>
+                    </tr>
+                    {% for t in results %}
+                    <tr style="background: {% if t.status == 'pending' %}#fffbeb{% else %}transparent{% endif %};">
+                        <td style="padding-left: 20px;">
+                            <input type="checkbox" name="selected_links" class="row-checkbox" value="{{ t.link_id }}" 
+                                   data-amount="{{ t.amount }}" 
+                                   data-txn-type="{% if t.type in ['expense', 'direct_out', 'dasti_out', 'batch_ledger_out', 'dasti_voucher_out', 'split_expense', 'settlement'] %}out{% else %}in{% endif %}" 
+                                   data-status="{{ t.status }}"
+                                   data-desc="{{ t.get('description', '') | replace('\"', '&quot;') | replace('\n', ' ') }}"
+                                   onchange="calculateSelection()" 
+                                   style="width:16px; height:16px; cursor:pointer;">
+                        </td>
+                        <td><span style="font-weight: 500;">{{ t.date }}</span><br><span style="font-size: 0.85em; color: #6b7280;">{{ t.time }}</span></td>
+                        <td><span class="badge badge-mode">{{ t.category }}</span><br><span style="white-space: pre-wrap;">{{ t.get('description', '') }}</span></td>
+                        <td style="text-align: right; padding-right: 20px;">
+                            {% if t.status == 'pending' %}<span class="badge" style="background:#fef3c7; color:#b45309; border:1px solid #fcd34d; font-size: 0.7em; padding: 2px 6px;">⏳ TEMP</span><br>{% endif %}
+                            {% if t.type in ['expense', 'direct_out', 'dasti_out', 'batch_ledger_out', 'dasti_voucher_out', 'split_expense', 'settlement'] %}
+                                <strong style="color:red;">- ₹{{ "{:,.2f}".format(t.amount | default(0)) }}</strong>
+                            {% else %}
+                                <strong style="color:green;">+ ₹{{ "{:,.2f}".format(t.amount | default(0)) }}</strong>
+                            {% endif %}
+                        </td>
+                        <td style="text-align: center;">
+                            <a href="/edit/transactions/{{ t.id }}" class="btn btn-sm" style="background:#f59e0b;color:white;" title="Edit this entry">✏️</a>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="5" style="text-align:center; color:#9ca3af; padding: 40px;">No entries found matching criteria.</td></tr>
+                    {% endfor %}
+                </table>
+                
+                <!-- AI RECONCILIATION SUGGESTION PANEL -->
+                <div id="suggestion-panel" style="margin: 20px; padding: 15px; background: #f0fdf4; border: 2px solid #86efac; border-radius: 8px; display: none;">
+                    <h4 style="margin-top: 0; color: #166534; display: flex; align-items: center; gap: 8px;">🤖 Match Diagnostics</h4>
+                    <div id="pos-suggestion" style="margin-bottom: 8px; font-size: 0.95em; color: #065f46;"></div>
+                    <div id="neg-suggestion" style="font-size: 0.95em; color: #991b1b;"></div>
+                </div>
+
+            </form>
+        </div>
+        
+        <script>
+            function toggleAllCheckboxes(masterCheckbox) {
+                let checkboxes = document.querySelectorAll('.row-checkbox');
+                checkboxes.forEach(cb => cb.checked = masterCheckbox.checked);
+                calculateSelection();
+            }
+
+            function calculateSelection() {
+                let checkboxes = document.querySelectorAll('.row-checkbox');
+                let count = 0;
+                let tempCount = 0;
+                let approvedCount = 0;
+                let totalPositive = 0;
+                let totalNegative = 0;
+
+                let selectedPos = []; let unselectedPos = [];
+                let selectedNeg = []; let unselectedNeg = [];
+
+                checkboxes.forEach(cb => {
+                    let amount = parseFloat(cb.getAttribute('data-amount')) || 0;
+                    let type = cb.getAttribute('data-txn-type');
+                    let status = cb.getAttribute('data-status');
+                    
+                    if (cb.checked) {
+                        count++;
+                        if (status === 'pending') tempCount++;
+                        else approvedCount++;
+
+                        if (type === 'in') { totalPositive += amount; selectedPos.push(cb); }
+                        else { totalNegative += amount; selectedNeg.push(cb); }
+                    } else {
+                        if (type === 'in') { unselectedPos.push(cb); }
+                        else { unselectedNeg.push(cb); }
+                    }
+                });
+
+                let fmt = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' });
+                document.getElementById('calc-count').innerText = count;
+                document.getElementById('calc-temp').innerText = tempCount;
+                document.getElementById('calc-approved').innerText = approvedCount;
+                document.getElementById('calc-positive').innerText = fmt.format(totalPositive).replace('₹', '₹');
+                document.getElementById('calc-negative').innerText = fmt.format(totalNegative).replace('₹', '₹');
+
+                let targetPosRaw = document.getElementById('target-pos').value;
+                let targetNegRaw = document.getElementById('target-neg').value;
+                let targetPos = parseFloat(targetPosRaw) || 0;
+                let targetNeg = parseFloat(targetNegRaw) || 0;
+                
+                let panel = document.getElementById('suggestion-panel');
+                let pSugg = document.getElementById('pos-suggestion');
+                let nSugg = document.getElementById('neg-suggestion');
+                
+                pSugg.innerHTML = "";
+                nSugg.innerHTML = "";
+
+                if (targetPosRaw !== "" || targetNegRaw !== "") {
+                    panel.style.display = 'block';
+
+                    if (targetPosRaw !== "") {
+                        let diffPos = totalPositive - targetPos;
+                        if (Math.abs(diffPos) < 0.01) {
+                            pSugg.innerHTML = "<strong>Positive (+):</strong> ✅ Balances match perfectly!";
+                        } else if (diffPos > 0) {
+                            let matches = selectedPos.filter(cb => Math.abs(parseFloat(cb.dataset.amount) - diffPos) < 0.01);
+                            if (matches.length > 0) {
+                                pSugg.innerHTML = `<strong>Positive (+):</strong> You selected ₹${diffPos.toFixed(2)} too much. <br>💡 <strong>Suggestion: UNCHECK</strong> ➔ "${matches[0].dataset.desc}" (₹${diffPos.toFixed(2)})`;
+                            } else {
+                                pSugg.innerHTML = `<strong>Positive (+):</strong> You selected ₹${diffPos.toFixed(2)} too much. (No single selected voucher matches this exact amount).`;
+                            }
+                        } else {
+                            let need = Math.abs(diffPos);
+                            let matches = unselectedPos.filter(cb => Math.abs(parseFloat(cb.dataset.amount) - need) < 0.01);
+                            if (matches.length > 0) {
+                                pSugg.innerHTML = `<strong>Positive (+):</strong> You are short by ₹${need.toFixed(2)}. <br>💡 <strong>Suggestion: CHECK</strong> ➔ "${matches[0].dataset.desc}" (₹${need.toFixed(2)})`;
+                            } else {
+                                pSugg.innerHTML = `<strong>Positive (+):</strong> You are short by ₹${need.toFixed(2)}. (Consider creating a new entry for this exact amount).`;
+                            }
+                        }
+                    }
+
+                    if (targetNegRaw !== "") {
+                        let diffNeg = totalNegative - targetNeg;
+                        if (Math.abs(diffNeg) < 0.01) {
+                            nSugg.innerHTML = "<strong>Negative (-):</strong> ✅ Balances match perfectly!";
+                        } else if (diffNeg > 0) {
+                            let matches = selectedNeg.filter(cb => Math.abs(parseFloat(cb.dataset.amount) - diffNeg) < 0.01);
+                            if (matches.length > 0) {
+                                nSugg.innerHTML = `<strong>Negative (-):</strong> You selected ₹${diffNeg.toFixed(2)} too much. <br>💡 <strong>Suggestion: UNCHECK</strong> ➔ "${matches[0].dataset.desc}" (₹${diffNeg.toFixed(2)})`;
+                            } else {
+                                nSugg.innerHTML = `<strong>Negative (-):</strong> You selected ₹${diffNeg.toFixed(2)} too much. (No single selected voucher matches this exact amount).`;
+                            }
+                        } else {
+                            let need = Math.abs(diffNeg);
+                            let matches = unselectedNeg.filter(cb => Math.abs(parseFloat(cb.dataset.amount) - need) < 0.01);
+                            if (matches.length > 0) {
+                                nSugg.innerHTML = `<strong>Negative (-):</strong> You are short by ₹${need.toFixed(2)}. <br>💡 <strong>Suggestion: CHECK</strong> ➔ "${matches[0].dataset.desc}" (₹${need.toFixed(2)})`;
+                            } else {
+                                nSugg.innerHTML = `<strong>Negative (-):</strong> You are short by ₹${need.toFixed(2)}. (Consider creating a new entry for this exact amount).`;
+                            }
+                        }
+                    }
+                } else {
+                    panel.style.display = 'none';
+                }
+            }
+        </script>
+        {% endif %}
+    </div>
+</body></html>'''
+
+
 # --- FIREBASE HELPER LOGIC ---
 def has_users():
     docs = db.collection('users').limit(1).stream()
@@ -2907,89 +3374,6 @@ def flag_entries():
             return redirect(url_for('flag_entries'))
             
     return render_template_string(FLAGS_TEMPLATE, results=results, has_searched=has_searched, start_date=start_date, end_date=end_date, flag_filter=flag_filter, username=session['username'], active_page='flags')
-
-@app.route('/bulk_edit_date', methods=['GET', 'POST'])
-def bulk_edit_date():
-    if 'user_id' not in session or (session.get('can_edit') != 1 and session.get('role') != 'superadmin'): 
-        return redirect(url_for('index'))
-    
-    firm_id = session['firm_id']
-    results = []
-    has_searched = False
-    
-    now = datetime.now(IST)
-    start_date = (now - timedelta(days=7)).strftime('%Y-%m-%d')
-    end_date = now.strftime('%Y-%m-%d')
-    search_amount = ''
-    search_desc = ''
-    
-    if request.method == 'POST':
-        action = request.form.get('action')
-        
-        if action == 'search':
-            start_date = request.form.get('start_date', start_date)
-            end_date = request.form.get('end_date', end_date)
-            search_amount = request.form.get('search_amount', '').strip()
-            search_desc = request.form.get('search_desc', '').strip().lower()
-            
-            docs = db.collection('transactions').where('user_id', '==', firm_id).where('deleted', '==', 0).stream()
-            for d in docs:
-                data = d.to_dict()
-                data['id'] = d.id  # Ensure ID is included for the Edit button link
-                date_val = data.get('date', '')
-                
-                if start_date <= date_val <= end_date:
-                    # Apply Amount Filter if provided
-                    if search_amount:
-                        try:
-                            if float(data.get('amount', 0)) != float(search_amount):
-                                continue
-                        except ValueError:
-                            pass
-                            
-                    # Apply Description/Category Filter if provided
-                    if search_desc:
-                        desc_text = data.get('description', '').lower()
-                        cat_text = data.get('category', '').lower()
-                        if search_desc not in desc_text and search_desc not in cat_text:
-                            continue
-                            
-                    results.append(data)
-                    
-            results.sort(key=lambda x: (x.get('date', ''), x.get('time', ''), x.get('created_at', 0)), reverse=True)
-            has_searched = True
-            
-        elif action == 'update_dates':
-            selected_links = request.form.getlist('selected_links')
-            new_date = request.form.get('new_date')
-            
-            if selected_links and new_date:
-                batch = db.batch()
-                updated_count = 0
-                
-                for link_id in selected_links:
-                    for collection in ['transactions', 'person_ledger', 'dasti_ledger']:
-                        docs = db.collection(collection).where('link_id', '==', link_id).where('user_id', '==', firm_id).stream()
-                        for d in docs:
-                            batch.update(d.reference, {'date': new_date})
-                            updated_count += 1
-                            
-                if updated_count > 0:
-                    batch.set(db.collection('edit_logs').document(), {
-                        'firm_id': firm_id,
-                        'link_id': 'bulk_edit',
-                        'edited_by': session['username'],
-                        'changes': f"Bulk changed date to {new_date} for {len(selected_links)} distinct vouchers.",
-                        'details': "Bulk Date Correction Tool",
-                        'timestamp': int(time.time() * 1000),
-                        'date_formatted': datetime.now(IST).strftime('%d-%b-%Y %I:%M %p')
-                    })
-                    
-                batch.commit()
-            
-            return redirect(url_for('bulk_edit_date'))
-
-    return render_template_string(BULK_EDIT_DATE_TEMPLATE, results=results, has_searched=has_searched, start_date=start_date, end_date=end_date, search_amount=search_amount, search_desc=search_desc, username=session['username'], active_page='bulk_date')
 
 @app.route('/delete/<string:table_name>/<string:row_id>')
 def delete_entry(table_name, row_id):
@@ -4479,6 +4863,251 @@ def fix_ledger_math():
         <a href="/" style="padding: 10px 20px; background: #4f46e5; color: white; text-decoration: none; border-radius: 8px;">Return to Dashboard</a>
     </div>
     """
+@app.route('/audit_ledger', methods=['GET'])
+def audit_ledger():
+    if 'user_id' not in session or session.get('role') != 'superadmin':
+        return redirect(url_for('index'))
+    
+    firm_id = session['firm_id']
+    
+    match_criteria = request.args.getlist('match_criteria')
+    if not match_criteria:
+        match_criteria = ['date', 'amount', 'type', 'category', 'description']
+
+    all_txns = []
+    docs = db.collection('transactions').where('user_id', '==', firm_id).where('deleted', '==', 0).stream()
+    for doc in docs:
+        all_txns.append({'id': doc.id, **doc.to_dict()})
+        
+    dash_in = 0.0; dash_out = 0.0
+    raw_in = 0.0; raw_out = 0.0
+    count_in = 0; count_out = 0
+    
+    temp_dash_in = 0.0; temp_dash_out = 0.0
+    temp_raw_in = 0.0; temp_raw_out = 0.0
+    temp_count_in = 0; temp_count_out = 0
+    
+    anomalies = []
+    link_groups = {}
+    duplicates_dict = {}
+
+    for t in all_txns:
+        amt = float(t.get('amount', 0))
+        t_type = t.get('type', '')
+        status = t.get('status', 'approved')
+        link_id = t.get('link_id', '')
+
+        # --- DYNAMIC DUPLICATE DETECTION LOGIC ---
+        if t_type not in ('split_expense', 'split_income'):
+            key_parts = []
+            display_parts = []
+            
+            if 'date' in match_criteria: 
+                key_parts.append(t.get('date', ''))
+                display_parts.append(f"📅 <strong>Date:</strong> {t.get('date', '')}")
+            if 'amount' in match_criteria: 
+                key_parts.append(amt)
+                display_parts.append(f"💰 <strong>Amt:</strong> <span style='color:green;'>₹{'{:,.2f}'.format(amt)}</span>")
+            if 'type' in match_criteria: 
+                key_parts.append(t_type)
+                display_parts.append(f"🏷️ <strong>Type:</strong> {t_type}")
+            if 'category' in match_criteria: 
+                key_parts.append(t.get('category', ''))
+                display_parts.append(f"📁 <strong>Category:</strong> {t.get('category', '')}")
+            if 'description' in match_criteria: 
+                key_parts.append(t.get('description', '').strip())
+                display_parts.append(f"📝 <strong>Desc:</strong> {t.get('description', '').strip()}")
+                
+            if key_parts:
+                dup_key = tuple(key_parts)
+                if dup_key not in duplicates_dict:
+                    duplicates_dict[dup_key] = {'display': "<br>".join(display_parts), 'entries': []}
+                duplicates_dict[dup_key]['entries'].append(t)
+
+        if link_id:
+            if link_id not in link_groups:
+                link_groups[link_id] = []
+            link_groups[link_id].append(t)
+
+        if amt < 0:
+            anomalies.append({'issue': 'Negative Amount Value', 'data': t})
+
+        is_known_in = t_type in ('income', 'dasti_voucher_in', 'direct_in', 'split_income', 'split_master_in')
+        is_known_out = t_type in ('expense', 'direct_out', 'dasti_out', 'dasti_voucher_out', 'split_expense', 'settlement', 'batch_ledger_out', 'split_master_out')
+        
+        if not is_known_in and not is_known_out:
+            anomalies.append({'issue': f'Unknown Type: {t_type}', 'data': t})
+
+        # 1. Dashboard Sums
+        if t_type not in ('split_master_out', 'split_master_in'):
+            if status == 'approved':
+                if is_known_in: dash_in += amt
+                elif is_known_out: dash_out += amt
+            elif status == 'pending':
+                if is_known_in: temp_dash_in += amt
+                elif is_known_out: temp_dash_out += amt
+        
+        # 2. Raw Database Sums
+        is_raw_in = t_type in ('income', 'dasti_voucher_in', 'direct_in', 'split_master_in')
+        is_raw_out = t_type in ('expense', 'direct_out', 'dasti_out', 'dasti_voucher_out', 'settlement', 'batch_ledger_out', 'split_master_out')
+
+        if status == 'approved':
+            if is_raw_in:
+                raw_in += amt; count_in += 1
+            elif is_raw_out:
+                raw_out += amt; count_out += 1
+        elif status == 'pending':
+            if is_raw_in:
+                temp_raw_in += amt; temp_count_in += 1
+            elif is_raw_out:
+                temp_raw_out += amt; temp_count_out += 1
+
+    # 3. Verify Split Voucher Mathematics
+    for link_id, group in link_groups.items():
+        master_txns = [tx for tx in group if tx.get('type') in ('split_master_in', 'split_master_out')]
+        if master_txns:
+            master = master_txns[0]
+            master_amt = float(master.get('amount', 0))
+            
+            child_sum = 0.0
+            for tx in group:
+                if tx.get('type') in ('split_income', 'split_expense'):
+                    child_sum += float(tx.get('amount', 0))
+            
+            p_docs = db.collection('person_ledger').where('link_id', '==', link_id).where('deleted', '==', 0).stream()
+            for p in p_docs: child_sum += float(p.to_dict().get('amount', 0))
+                
+            d_docs = db.collection('dasti_ledger').where('link_id', '==', link_id).where('deleted', '==', 0).stream()
+            for d in d_docs: child_sum += float(d.to_dict().get('amount', 0))
+                
+            if abs(master_amt - child_sum) > 0.01:
+                anomalies.append({
+                    'issue': f'Split Imbalance (Master: {master_amt} vs Legs: {child_sum})', 
+                    'data': master
+                })
+
+    # Prepare final duplicates list and calculate total excess amount
+    duplicates = []
+    total_duplicate_excess = 0.0
+    
+    for key, data in duplicates_dict.items():
+        if len(data['entries']) > 1:
+            
+            # Calculate excess: Sum all entries EXCEPT the first one in the group
+            excess = sum(float(e.get('amount', 0)) for e in data['entries'][1:])
+            total_duplicate_excess += excess
+            
+            duplicates.append({
+                'display_text': data['display'],
+                'count': len(data['entries']),
+                'entries': data['entries']
+            })
+            
+    duplicates.sort(key=lambda x: x['count'], reverse=True)
+
+    return render_template_string(
+        AUDIT_TEMPLATE, 
+        dash_in=dash_in, dash_out=dash_out, 
+        raw_in=raw_in, raw_out=raw_out, 
+        count_in=count_in, count_out=count_out,
+        temp_dash_in=temp_dash_in, temp_dash_out=temp_dash_out,
+        temp_raw_in=temp_raw_in, temp_raw_out=temp_raw_out,
+        temp_count_in=temp_count_in, temp_count_out=temp_count_out,
+        anomalies=anomalies, 
+        duplicates=duplicates,
+        total_duplicate_excess=total_duplicate_excess,
+        match_criteria=match_criteria,
+        username=session['username'], 
+        active_page='audit'
+    )
+
+@app.route('/bulk_edit_date', methods=['GET', 'POST'])
+def bulk_edit_date():
+    if 'user_id' not in session or (session.get('can_edit') != 1 and session.get('role') != 'superadmin'): 
+        return redirect(url_for('index'))
+    
+    firm_id = session['firm_id']
+    results = []
+    has_searched = False
+    
+    now = datetime.now(IST)
+    start_date = (now - timedelta(days=7)).strftime('%Y-%m-%d')
+    end_date = now.strftime('%Y-%m-%d')
+    search_amount = ''
+    search_desc = ''
+    
+    if request.method == 'POST':
+        action = request.form.get('action')
+        
+        if action == 'search':
+            start_date = request.form.get('start_date', start_date)
+            end_date = request.form.get('end_date', end_date)
+            search_amount = request.form.get('search_amount', '').strip()
+            search_desc = request.form.get('search_desc', '').strip().lower()
+            
+            docs = db.collection('transactions').where('user_id', '==', firm_id).where('deleted', '==', 0).stream()
+            for d in docs:
+                data = d.to_dict()
+                
+                # FIX: Exclude master splits to prevent double counting
+                if data.get('type') in ('split_master_in', 'split_master_out'):
+                    continue
+                    
+                data['id'] = d.id  # Ensure ID is included for the Edit button link
+                date_val = data.get('date', '')
+                
+                if start_date <= date_val <= end_date:
+                    # Apply Amount Filter if provided
+                    if search_amount:
+                        try:
+                            if float(data.get('amount', 0)) != float(search_amount):
+                                continue
+                        except ValueError:
+                            pass
+                            
+                    # Apply Description/Category Filter if provided
+                    if search_desc:
+                        desc_text = data.get('description', '').lower()
+                        cat_text = data.get('category', '').lower()
+                        if search_desc not in desc_text and search_desc not in cat_text:
+                            continue
+                            
+                    results.append(data)
+                    
+            results.sort(key=lambda x: (x.get('date', ''), x.get('time', ''), x.get('created_at', 0)), reverse=True)
+            has_searched = True
+            
+        elif action == 'update_dates':
+            selected_links = request.form.getlist('selected_links')
+            new_date = request.form.get('new_date')
+            
+            if selected_links and new_date:
+                batch = db.batch()
+                updated_count = 0
+                
+                for link_id in selected_links:
+                    for collection in ['transactions', 'person_ledger', 'dasti_ledger']:
+                        docs = db.collection(collection).where('link_id', '==', link_id).where('user_id', '==', firm_id).stream()
+                        for d in docs:
+                            batch.update(d.reference, {'date': new_date})
+                            updated_count += 1
+                            
+                if updated_count > 0:
+                    batch.set(db.collection('edit_logs').document(), {
+                        'firm_id': firm_id,
+                        'link_id': 'bulk_edit',
+                        'edited_by': session['username'],
+                        'changes': f"Bulk changed date to {new_date} for {len(selected_links)} distinct vouchers.",
+                        'details': "Bulk Date Correction Tool",
+                        'timestamp': int(time.time() * 1000),
+                        'date_formatted': datetime.now(IST).strftime('%d-%b-%Y %I:%M %p')
+                    })
+                    
+                batch.commit()
+            
+            return redirect(url_for('bulk_edit_date'))
+
+    return render_template_string(BULK_EDIT_DATE_TEMPLATE, results=results, has_searched=has_searched, start_date=start_date, end_date=end_date, search_amount=search_amount, search_desc=search_desc, username=session['username'], active_page='bulk_date')
 
 if __name__ == '__main__':
-   pass
+    pass
