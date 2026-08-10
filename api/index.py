@@ -2395,7 +2395,6 @@ AUDIT_TEMPLATE = '''<!DOCTYPE html><html><head><title>Ledger Audit & Diagnostics
             </div>
         </div>
 
-        <!-- GRAND COMBINED TOTALS -->
         <div class="card" style="background: #f0fdf4; border: 2px solid #22c55e; padding: 20px; margin-bottom: 20px; text-align: center;">
             <h3 style="margin-top:0; color: #166534;">🌍 Grand Combined Balance (Approved + Temporary)</h3>
             <p style="font-size: 1.2em; margin-bottom: 0;">
@@ -2407,17 +2406,14 @@ AUDIT_TEMPLATE = '''<!DOCTYPE html><html><head><title>Ledger Audit & Diagnostics
             </h2>
         </div>
 
-        <!-- DYNAMIC DUPLICATE DETECTION FINDER -->
         <div class="card" style="padding: 0; margin-bottom: 20px; border: 2px solid #fdba74;" id="duplicates-section">
             <div style="padding: 15px 20px; background: #ffedd5; border-bottom: 1px solid #fdba74; display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 15px;">
-                
                 <div style="flex: 1; min-width: 350px;">
                     <h3 style="margin: 0; color: #c2410c;">🔍 Dynamic Duplicate Finder ({{ duplicates|length }} Groups Found)</h3>
                     <div style="font-size: 0.9em; color: #9a3412; margin-top: 5px; margin-bottom: 15px;">
                         Select the exact conditions to define a "Duplicate". (Time is intentionally ignored).
                     </div>
                     
-                    <!-- DYNAMIC SEARCH CONDITIONS FORM -->
                     <form method="GET" action="/audit_ledger#duplicates-section" style="display: flex; gap: 15px; flex-wrap: wrap; align-items: center; background: white; padding: 10px 15px; border-radius: 8px; border: 1px solid #fcd34d;">
                         <strong style="color: #b45309; font-size: 0.9em;">Match By:</strong>
                         <label style="cursor: pointer; font-size: 0.9em; font-weight: bold;"><input type="checkbox" name="match_criteria" value="date" {% if 'date' in match_criteria %}checked{% endif %}> Date</label>
@@ -2430,7 +2426,6 @@ AUDIT_TEMPLATE = '''<!DOCTYPE html><html><head><title>Ledger Audit & Diagnostics
                     </form>
                 </div>
                 
-                <!-- MANUAL TEXT FILTER -->
                 <div style="display: flex; align-items: center; gap: 5px; background: white; padding: 5px; border-radius: 8px; border: 1px solid #fdba74; align-self: flex-end;">
                     <input type="text" id="dupSearchInput" placeholder="Filter this list..." style="border: none; outline: none; padding: 5px; font-size: 1em; width: 150px;">
                     <button type="button" class="btn" onclick="searchDuplicates()" style="background: #9a3412; color: white; padding: 6px 12px; margin: 0; border-radius: 6px;">🔍 Filter</button>
@@ -2500,7 +2495,6 @@ AUDIT_TEMPLATE = '''<!DOCTYPE html><html><head><title>Ledger Audit & Diagnostics
                 </tbody>
             </table>
             
-            <!-- TOTAL EXCESS AMOUNT FOOTER -->
             {% if duplicates|length > 0 %}
             <div style="background: #ffedd5; padding: 15px 25px; border-top: 2px dashed #fdba74; display: flex; justify-content: space-between; align-items: center;">
                 <div>
@@ -2517,9 +2511,12 @@ AUDIT_TEMPLATE = '''<!DOCTYPE html><html><head><title>Ledger Audit & Diagnostics
         </div>
 
         <div class="card" style="padding: 0;">
-            <h3 style="padding: 15px 20px; margin: 0; background: #fee2e2; border-bottom: 1px solid var(--border); color: #991b1b;">
-                ⚠️ Detected Data Anomalies & Errors ({{ anomalies|length }})
-            </h3>
+            <div style="padding: 15px 20px; background: #fee2e2; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center;">
+                <h3 style="margin: 0; color: #991b1b;">⚠️ Detected Data Anomalies & Errors ({{ anomalies|length }})</h3>
+                {% if anomalies|length > 0 %}
+                <a href="/auto_fix_splits" class="btn btn-warning" onclick="return confirm('Auto-fix all broken split amounts to match their surviving legs?');" style="color: white; font-weight: bold; padding: 8px 15px; border-radius: 8px;">🛠️ Auto-Fix Broken Splits</a>
+                {% endif %}
+            </div>
             <table style="width: 100%; border: none;">
                 <thead>
                     <tr style="background: #f8fafc;">
@@ -2556,7 +2553,6 @@ AUDIT_TEMPLATE = '''<!DOCTYPE html><html><head><title>Ledger Audit & Diagnostics
         </div>
     </div>
 
-    <!-- SCRIPT FOR SEARCHING DUPLICATES -->
     <script>
         function searchDuplicates() {
             let input = document.getElementById("dupSearchInput").value.toLowerCase().replace(/,/g, '');
@@ -2865,17 +2861,19 @@ def index():
     s_d_in = s_d_out = s_yest_in = s_yest_out = s_w_in = s_w_out = s_m_in = s_m_out = s_y_in = s_y_out = 0
     total_in_actual = 0
     total_out_actual = 0
-    # MATH: Balances calculated using ALL time
+    
+    # Identify all master splits to power the Visual Combine feature
+    master_links = {tx.get('link_id') for tx in all_txns if tx.get('type') in ('split_master_in', 'split_master_out')}
+
     for r in all_txns:
         amt, d, ttype = float(r.get('amount', 0)), r.get('date', ''), r.get('type', '')
         
-        # FIX: Completely ignore the total 'Master' sum. Only calculate the specific assigned legs.
+        # MATH: Ignore the visual 'Master' sum. Only calculate the specific assigned legs to prevent double counting.
         if ttype in ('split_master_out', 'split_master_in'):
             continue
         
         is_in = ttype in ('income', 'dasti_voucher_in', 'direct_in', 'split_income')
-        is_out = ttype in ('expense', 'dasti_out', 'dasti_voucher_out', 'direct_out', 'split_expense', 'settlement')
-
+        is_out = ttype in ('expense', 'dasti_out', 'dasti_voucher_out', 'direct_out', 'split_expense', 'settlement', 'batch_ledger_out')
 
         if is_in: total_in_actual += amt
         if is_out: total_out_actual += amt
@@ -2900,14 +2898,11 @@ def index():
     
     incomes = []
     expenses = []
-    
-    # Grab the user's display preference
     table_filter_mode = settings.get('dashboard_table_filter', 'strict')
 
-    # DISPLAY: Tables filtered by "Closing" Period dynamically
     for t in all_txns:
         d = t.get('date', '')
-        if not is_in_period(session, d): continue # 📅 FILTERS VIEW BY WORKING MONTH/YEAR
+        if not is_in_period(session, d): continue 
         
         if time_filter == 'today' and d != today_str: continue
         if time_filter == 'yesterday' and d != yesterday_str: continue
@@ -2917,23 +2912,21 @@ def index():
         
         t_type = t.get('type')
         
-        # FIX: Hide the lump-sum Master entry from the tables, show the specific accounts instead
-        if t_type in ('split_master_out', 'split_master_in'):
-            continue
-            
+        # 🔀 VISUAL COMBINE: If part of a split, ONLY show the combined Master. Hide the legs.
+        if t.get('link_id') in master_links:
+            if t_type not in ('split_master_out', 'split_master_in'):
+                continue
+        
         if table_filter_mode == 'all':
-            # MODE: SHOW ALL (Put everything in the tables based solely on direction)
             if t_type in ('income', 'dasti_voucher_in', 'direct_in', 'split_master_in', 'split_income'):
                 incomes.append(t)
             elif t_type in ('expense', 'batch_ledger_out', 'dasti_out', 'dasti_voucher_out', 'direct_out', 'split_master_out', 'split_expense', 'settlement'):
                 expenses.append(t)
         else:
-            # MODE: STRICT (Hide person advances and person cash settlements)
             if t_type in ('income', 'direct_in', 'split_master_in', 'split_income') and t.get('voucher_nature') != 'receive_cash':
                 incomes.append(t)
             elif t_type in ('expense', 'batch_ledger_out', 'direct_out', 'split_master_out', 'split_expense', 'settlement') and t.get('voucher_nature') != 'advance':
                 expenses.append(t)
-                
 
     all_person_ledger = [doc.to_dict() for doc in db.collection('person_ledger').where('user_id', '==', firm_id).where('deleted', '==', 0).stream()]
     all_dasti_ledger = [doc.to_dict() for doc in db.collection('dasti_ledger').where('user_id', '==', firm_id).where('deleted', '==', 0).stream()]
@@ -2972,7 +2965,6 @@ def index():
             t_type = t.get('type')
             desc = t.get('description', '')
             
-            # FIX: Skip the total lump sum completely. Calculate only individual legs.
             if t_type in ('split_master_out', 'split_master_in'):
                 continue
             
@@ -2988,7 +2980,6 @@ def index():
             elif t_type in ('expense', 'dasti_out', 'dasti_voucher_out', 'direct_out', 'split_expense', 'settlement'):
                 temp_out += amt
                 temp_acc_dict[acc_name] = temp_acc_dict.get(acc_name, 0) - amt
-
 
     temp_balance = temp_in - temp_out
     temp_breakdown = [{'name': k, 'amount': v} for k, v in temp_acc_dict.items() if v != 0]
@@ -3416,26 +3407,32 @@ def main_ledger():
     is_desc = (settings.get('dashboard_sort_order', 'desc') == 'desc')
     all_txns.sort(key=lambda x: (x.get('date', ''), x.get('time', ''), x.get('created_at', 0)), reverse=is_desc)
 
+    master_links = {tx.get('link_id') for tx in all_txns if tx.get('type') in ('split_master_in', 'split_master_out')}
+
     total_in = 0
     total_out = 0
     for t in all_txns:
         ttype = t.get('type')
-        # FIX: Ignore master totals, only count assigned rows
+        # MATH: Ignore master totals
         if ttype in ('split_master_out', 'split_master_in'):
             continue
             
         if ttype in ('income', 'dasti_voucher_in', 'direct_in', 'split_income'):
             total_in += float(t.get('amount', 0))
-        elif ttype in ('expense', 'direct_out', 'dasti_out', 'dasti_voucher_out', 'split_expense', 'settlement'):
+        elif ttype in ('expense', 'direct_out', 'dasti_out', 'dasti_voucher_out', 'split_expense', 'settlement', 'batch_ledger_out'):
             total_out += float(t.get('amount', 0))
             
     balance = total_in - total_out
     
-    # DISPLAY: Filter logic
     display_txns = []
     for t in all_txns:
         if not is_in_period(session, t.get('date', '')): continue
-        if t.get('type') in ('split_master_out', 'split_master_in'): continue # Hide Master Lump Sum
+        
+        # 🔀 VISUAL COMBINE: Show Master, Hide Legs
+        if t.get('link_id') in master_links:
+            if t.get('type') not in ('split_master_in', 'split_master_out'):
+                continue
+                
         display_txns.append(t)
         
     return render_template_string(MAIN_LEDGER_TEMPLATE, txns=display_txns, balance=balance, total_in=total_in, total_out=total_out, total_dasti=0, total_dasti_vouchers=0, username=session['username'], active_page='main_ledger')
@@ -4415,18 +4412,22 @@ def temp_ledger():
         t_type = t.get('type')
         amt = float(t.get('amount', 0))
         
-        # MATH Logic - Ignore master totals, only count assigned rows
+        # MATH Logic - Ignore master totals
         if t_type in ('split_master_out', 'split_master_in'):
-            pass # Skip the master lump sum completely
+            pass 
         elif t_type in ('income', 'dasti_voucher_in', 'direct_in', 'split_income'):
             total_in += amt
-        elif t_type in ('expense', 'dasti_out', 'dasti_voucher_out', 'direct_out', 'split_expense', 'settlement'):
+        elif t_type in ('expense', 'dasti_out', 'dasti_voucher_out', 'direct_out', 'split_expense', 'settlement', 'batch_ledger_out'):
             total_out += amt
             
         # DISPLAY Logic
         if not is_in_period(session, t.get('date', '')): continue
-        if t_type in ('split_expense', 'split_income') and t.get('link_id') in master_links: continue
-            
+        
+        # 🔀 VISUAL COMBINE: Show Master, Hide Legs
+        if t.get('link_id') in master_links:
+            if t_type not in ('split_master_in', 'split_master_out'):
+                continue
+                
         if t_type in ('income', 'direct_in', 'split_master_in', 'split_income') and t.get('voucher_nature') != 'receive_cash':
             incomes.append(t)
         elif t_type in ('expense', 'batch_ledger_out', 'direct_out', 'split_master_out', 'split_expense', 'settlement') and t.get('voucher_nature') != 'advance':
@@ -4880,7 +4881,6 @@ def audit_ledger():
         return redirect(url_for('index'))
     
     firm_id = session['firm_id']
-    
     match_criteria = request.args.getlist('match_criteria')
     if not match_criteria:
         match_criteria = ['date', 'amount', 'type', 'category', 'description']
@@ -4943,37 +4943,26 @@ def audit_ledger():
         if amt < 0:
             anomalies.append({'issue': 'Negative Amount Value', 'data': t})
 
-        is_known_in = t_type in ('income', 'dasti_voucher_in', 'direct_in', 'split_income', 'split_master_in')
-        is_known_out = t_type in ('expense', 'direct_out', 'dasti_out', 'dasti_voucher_out', 'split_expense', 'settlement', 'batch_ledger_out', 'split_master_out')
+        is_known_in = t_type in ('income', 'dasti_voucher_in', 'direct_in', 'split_income')
+        is_known_out = t_type in ('expense', 'direct_out', 'dasti_out', 'dasti_voucher_out', 'split_expense', 'settlement', 'batch_ledger_out')
         
-        if not is_known_in and not is_known_out:
+        if not is_known_in and not is_known_out and t_type not in ('split_master_in', 'split_master_out'):
             anomalies.append({'issue': f'Unknown Type: {t_type}', 'data': t})
 
-        # 1. Dashboard Sums
+        # Corrected Logic: Ignore master containers completely to prevent double counting
         if t_type not in ('split_master_out', 'split_master_in'):
             if status == 'approved':
-                if is_known_in: dash_in += amt
-                elif is_known_out: dash_out += amt
+                if is_known_in:
+                    dash_in += amt; raw_in += amt; count_in += 1
+                elif is_known_out:
+                    dash_out += amt; raw_out += amt; count_out += 1
             elif status == 'pending':
-                if is_known_in: temp_dash_in += amt
-                elif is_known_out: temp_dash_out += amt
-        
-        # 2. Raw Database Sums
-        is_raw_in = t_type in ('income', 'dasti_voucher_in', 'direct_in', 'split_master_in')
-        is_raw_out = t_type in ('expense', 'direct_out', 'dasti_out', 'dasti_voucher_out', 'settlement', 'batch_ledger_out', 'split_master_out')
+                if is_known_in:
+                    temp_dash_in += amt; temp_raw_in += amt; temp_count_in += 1
+                elif is_known_out:
+                    temp_dash_out += amt; temp_raw_out += amt; temp_count_out += 1
 
-        if status == 'approved':
-            if is_raw_in:
-                raw_in += amt; count_in += 1
-            elif is_raw_out:
-                raw_out += amt; count_out += 1
-        elif status == 'pending':
-            if is_raw_in:
-                temp_raw_in += amt; temp_count_in += 1
-            elif is_raw_out:
-                temp_raw_out += amt; temp_count_out += 1
-
-    # 3. Verify Split Voucher Mathematics
+    # Verify Split Voucher Mathematics
     for link_id, group in link_groups.items():
         master_txns = [tx for tx in group if tx.get('type') in ('split_master_in', 'split_master_out')]
         if master_txns:
@@ -4997,17 +4986,12 @@ def audit_ledger():
                     'data': master
                 })
 
-    # Prepare final duplicates list and calculate total excess amount
     duplicates = []
     total_duplicate_excess = 0.0
-    
     for key, data in duplicates_dict.items():
         if len(data['entries']) > 1:
-            
-            # Calculate excess: Sum all entries EXCEPT the first one in the group
             excess = sum(float(e.get('amount', 0)) for e in data['entries'][1:])
             total_duplicate_excess += excess
-            
             duplicates.append({
                 'display_text': data['display'],
                 'count': len(data['entries']),
@@ -5018,18 +5002,9 @@ def audit_ledger():
 
     return render_template_string(
         AUDIT_TEMPLATE, 
-        dash_in=dash_in, dash_out=dash_out, 
-        raw_in=raw_in, raw_out=raw_out, 
-        count_in=count_in, count_out=count_out,
-        temp_dash_in=temp_dash_in, temp_dash_out=temp_dash_out,
-        temp_raw_in=temp_raw_in, temp_raw_out=temp_raw_out,
-        temp_count_in=temp_count_in, temp_count_out=temp_count_out,
-        anomalies=anomalies, 
-        duplicates=duplicates,
-        total_duplicate_excess=total_duplicate_excess,
-        match_criteria=match_criteria,
-        username=session['username'], 
-        active_page='audit'
+        dash_in=dash_in, dash_out=dash_out, raw_in=raw_in, raw_out=raw_out, count_in=count_in, count_out=count_out,
+        temp_dash_in=temp_dash_in, temp_dash_out=temp_dash_out, temp_raw_in=temp_raw_in, temp_raw_out=temp_raw_out, temp_count_in=temp_count_in, temp_count_out=temp_count_out,
+        anomalies=anomalies, duplicates=duplicates, total_duplicate_excess=total_duplicate_excess, match_criteria=match_criteria, username=session['username'], active_page='audit'
     )
 
 @app.route('/bulk_edit_date', methods=['GET', 'POST'])
@@ -5187,6 +5162,65 @@ def repair_ledger_math():
         batch.commit()
         
     return f"✅ Database Math Repaired! {fixes_applied} missing or broken connections were successfully repaired in the Main Cashbook."
+@app.route('/auto_fix_splits')
+def auto_fix_splits():
+    if 'user_id' not in session or session.get('role') != 'superadmin':
+        return redirect(url_for('index'))
+    
+    firm_id = session['firm_id']
+    batch = db.batch()
+    update_count = 0
+    
+    all_txns = list(db.collection('transactions').where('user_id', '==', firm_id).where('deleted', '==', 0).stream())
+    all_persons = list(db.collection('person_ledger').where('user_id', '==', firm_id).where('deleted', '==', 0).stream())
+    all_dastis = list(db.collection('dasti_ledger').where('user_id', '==', firm_id).where('deleted', '==', 0).stream())
+    
+    link_groups = {}
+    for t in all_txns:
+        data = t.to_dict()
+        lid = data.get('link_id')
+        if lid:
+            if lid not in link_groups: link_groups[lid] = {'master': None, 'tx_legs': [], 'p_legs': [], 'd_legs': []}
+            if data.get('type') in ('split_master_in', 'split_master_out'):
+                link_groups[lid]['master'] = t
+            elif data.get('type') in ('split_income', 'split_expense', 'dasti_out', 'dasti_voucher_out', 'income', 'dasti_voucher_in'):
+                link_groups[lid]['tx_legs'].append(data)
+                
+    for p in all_persons:
+        data = p.to_dict()
+        lid = data.get('link_id')
+        if lid and lid in link_groups:
+            link_groups[lid]['p_legs'].append(data)
+            
+    for d in all_dastis:
+        data = d.to_dict()
+        lid = data.get('link_id')
+        if lid and lid in link_groups:
+            link_groups[lid]['d_legs'].append(data)
+            
+    for lid, group in link_groups.items():
+        if group['master']:
+            child_sum = 0.0
+            for tx in group['tx_legs']:
+                if tx.get('type') in ('split_income', 'split_expense'):
+                    child_sum += float(tx.get('amount', 0))
+            for p in group['p_legs']: child_sum += float(p.get('amount', 0))
+            for d in group['d_legs']: child_sum += float(d.get('amount', 0))
+            
+            master_amt = float(group['master'].to_dict().get('amount', 0))
+            if abs(master_amt - child_sum) > 0.01:
+                batch.update(group['master'].reference, {'amount': child_sum})
+                update_count += 1
+                
+                if update_count >= 400:
+                    batch.commit()
+                    batch = db.batch()
+                    update_count = 0
+                    
+    if update_count > 0:
+        batch.commit()
+        
+    return redirect(url_for('audit_ledger'))
 
 if __name__ == '__main__':
     app.run(debug=True, use_reloader=False)
