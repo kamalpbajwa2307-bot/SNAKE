@@ -2,10 +2,10 @@ import firebase_admin
 from firebase_admin import credentials, firestore
 from flask import Flask, render_template_string, request, redirect, url_for, session, flash, send_file
 from datetime import datetime, timedelta, timezone
-import pandas as pd
 import os
 import math
 import json
+import sqlite3
 
 from werkzeug.security import generate_password_hash, check_password_hash
 import time, uuid, csv
@@ -24,18 +24,19 @@ app.permanent_session_lifetime = timedelta(minutes=15)
 # Fetching the variable from Railway Environment Variables
 firebase_creds_json = os.getenv('FIREBASE_CONFIG')
 
+db = None
 if firebase_creds_json:
     try:
         cred_dict = json.loads(firebase_creds_json)
         cred = credentials.Certificate(cred_dict)
-        firebase_admin.initialize_app(cred)
+        if not firebase_admin._apps:
+            firebase_admin.initialize_app(cred)
+        db = firestore.client()
         print("Firebase successfully initialized!")
     except Exception as e:
         print(f"Error parsing JSON or initializing Firebase: {e}")
 else:
     print("CRITICAL ERROR: FIREBASE_CONFIG environment variable not found!")
-
-db = firestore.client()
 
 # --- HTML TEMPLATES & CSS ---
 
@@ -85,12 +86,12 @@ BASE_STYLE = '''
     .stat-card { background: #fff; padding: 20px; border-radius: 12px; border: 1px solid var(--border); text-align: center; }
     .stat-card h4 { color: #6b7280; margin: 0 0 8px 0; font-size: 0.85em; text-transform: uppercase; }
     .stat-card .value { font-size: 1.6em; font-weight: 700; }
-    
+
     #splash-screen { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: linear-gradient(135deg, #4f46e5, #3b82f6); z-index: 9999; display: flex; flex-direction: column; align-items: center; justify-content: center; color: white; transition: opacity 0.5s ease; }
     .splash-firm { font-size: 3.5em; font-weight: 700; margin-bottom: 10px; animation: popIn 0.8s ease; text-transform: uppercase; letter-spacing: 2px;}
     .splash-user { font-size: 1.5em; font-weight: 300; animation: popIn 1.2s ease; }
     @keyframes popIn { 0% { opacity: 0; transform: translateY(20px); } 100% { opacity: 1; transform: translateY(0); } }
-    
+
     @media print { .no-print, .navbar, .card form, .express-entry, .transfer-entry, button, select { display: none !important; } body { background: white; color: black; } .card { box-shadow: none; border: none; margin: 0; padding: 0; } }
 </style>
 <script>
@@ -118,7 +119,7 @@ BASE_STYLE = '''
     }
     function toggleCustomCategory(selectElem) {
         const customInput = selectElem.nextElementSibling;
-        if (selectElem.value === 'Other') { customInput.style.display = 'block'; customInput.required = true; } 
+        if (selectElem.value === 'Other') { customInput.style.display = 'block'; customInput.required = true; }
         else { customInput.style.display = 'none'; customInput.required = false; }
     }
     function addRow(catOptions) {
@@ -332,7 +333,7 @@ APPROVALS_TEMPLATE = '''<!DOCTYPE html><html><head><title>Pending Approvals</tit
                     <td><span class="badge badge-pending">Pending</span><br><span style="white-space: pre-wrap;">{{ t.description }}</span></td>
                     <td style="text-align: right;"><strong>₹{{ "{:,.2f}".format(t.amount) }}</strong></td>
                     <td style="text-align: center;">
-                        <a href="/approve_voucher/{{ t.link_id }}" class="btn btn-sm btn-success" onclick="return confirm('Approve this transaction?');">✅ Approve</a> 
+                        <a href="/approve_voucher/{{ t.link_id }}" class="btn btn-sm btn-success" onclick="return confirm('Approve this transaction?');">✅ Approve</a>
                         <a href="/reject_voucher/{{ t.link_id }}" class="btn btn-sm btn-danger" onclick="return confirm('Reject & Delete this transaction?');">❌ Reject</a>
                     </td>
                 </tr>{% else %}<tr><td colspan="4" style="text-align:center; color:#9ca3af; padding: 40px;">No pending vouchers requiring approval.</td></tr>{% endfor %}
@@ -421,7 +422,7 @@ EDIT_TEMPLATE = '''<!DOCTYPE html><html><head><title>Edit Entry</title>''' + BAS
                     <div class="form-group flex-1"><label>Category</label><input type="text" name="category" value="{{ entry.category }}" required></div>
                 </div>
                 <div class="form-group"><label>Description / Bill Details</label><input type="text" name="description" value="{{ entry.description }}" required></div>
-                
+
                 {% if session.get('role') in ['admin', 'superadmin'] and entry.status == 'approved' %}
                 <div class="form-group">
                     <label>Approved By <small>(Admin Override)</small></label>
@@ -453,7 +454,7 @@ EDIT_TEMPLATE = '''<!DOCTYPE html><html><head><title>Edit Entry</title>''' + BAS
 
 INDEX_TEMPLATE = '''<!DOCTYPE html><html><head><title>Main Cash Book Dashboard</title>''' + BASE_STYLE + '''</head><body>
     <div class="container">''' + NAVBAR_HTML + '''
-        
+
         <div class="card no-print" style="padding: 20px; background: linear-gradient(to right, #ffffff, #f1f5f9);">
             <h3 style="margin-bottom: 15px; font-size: 1.2em; color: #475569;">📈 Account Flow Summary</h3>
             <div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; margin-bottom: 0;">
@@ -465,11 +466,11 @@ INDEX_TEMPLATE = '''<!DOCTYPE html><html><head><title>Main Cash Book Dashboard</
         </div>
 
         ''' + EXPRESS_ENTRY_HTML + '''
-        
+
         <div class="card balance-card">
             <h2 style="color: #64748b; font-size: 1.1em; text-transform: uppercase; margin-bottom: 0;">🏢 Available Main Cash Book Balance</h2>
             <div class="balance-amount" style="color: {{ 'var(--success)' if balance >= 0 else 'var(--danger)' }}">₹{{ "{:,.2f}".format(balance) }}</div>
-            
+
             <div style="display: flex; justify-content: center; gap: 30px; margin-top: 15px; flex-wrap: wrap;">
                 <div style="color: #0369a1; background: #e0f2fe; padding: 10px 15px; border-radius: 8px; border: 1px solid #bae6fd; min-width: 250px;">
                     <strong style="font-size: 0.85em; color: #0284c7; text-transform: uppercase;">Person Ledger Advances (Outstanding)</strong><br>
@@ -486,9 +487,9 @@ INDEX_TEMPLATE = '''<!DOCTYPE html><html><head><title>Main Cash Book Dashboard</
                 </div>
             </div>
         </div>
-        
+
         <div class="card no-print" style="padding: 25px;"><h3 style="margin-bottom: 15px; font-size: 1.3em;">⚡ Master Advanced Batch Entry</h3>''' + ENTRY_FORM_HTML + '''</div>
-        
+
         <div class="ledger-container">
             <div class="ledger-col"><h3 class="ledger-title" style="color: var(--success); border-bottom: 3px solid var(--success);">Receipts (+ IN)</h3>
                 <table style="width: 100%; font-size: 0.95em;"><tr><th style="width: 5%;">Sr.</th><th>Date</th><th>Mode/Cat</th><th>Detail</th><th style="text-align: right;">Amount</th><th class="no-print">Act</th></tr>
@@ -613,11 +614,11 @@ PERSON_ACCOUNT_TEMPLATE = '''<!DOCTYPE html><html><head><title>Account: {{ perso
 
 DASTI_LEDGER_TEMPLATE = '''<!DOCTYPE html><html><head><title>Dasti Ledger</title>''' + BASE_STYLE + '''</head><body>
     <div class="container">''' + NAVBAR_HTML + '''
-        
+
         <div class="card balance-card" style="margin-bottom: 25px;">
             <h2 style="color: #64748b; font-size: 1.1em; text-transform: uppercase; margin-bottom: 0;">🏢 Available Main Cash Book Balance</h2>
             <div class="balance-amount" style="color: {{ 'var(--success)' if balance >= 0 else 'var(--danger)' }}">₹{{ "{:,.2f}".format(balance) }}</div>
-            
+
             <div style="display: flex; justify-content: center; margin-top: 15px;">
                 <div style="color: #0369a1; background: #e0f2fe; padding: 10px 15px; border-radius: 8px; border: 1px solid #bae6fd; min-width: 250px;">
                     <strong style="font-size: 0.85em; color: #0284c7; text-transform: uppercase;">💸 Total Dasti Balance (Outstanding)</strong><br>
@@ -683,19 +684,19 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS person_ledger (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, person_id INTEGER, date TEXT, time TEXT, payment_mode TEXT, category TEXT, description TEXT, type TEXT, amount REAL, link_id TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS dasti_ledger (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, dasti_person_id INTEGER, date TEXT, time TEXT, payment_mode TEXT, category TEXT, description TEXT, type TEXT, amount REAL, link_id TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS categories (id INTEGER PRIMARY KEY AUTOINCREMENT, firm_id INTEGER, name TEXT UNIQUE)''')
-    
+
     try: c.execute("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'superadmin'")
     except: pass
     try: c.execute("ALTER TABLE users ADD COLUMN firm_id INTEGER")
     except: pass
     try: c.execute("ALTER TABLE users ADD COLUMN can_approve INTEGER DEFAULT 1")
     except: pass
-    
+
     for table in ['transactions', 'person_ledger', 'dasti_ledger']:
         for col, default in [('time', "'00:00'"), ('payment_mode', "'Cash'"), ('category', "'General'"), ('link_id', "''"), ('status', "'approved'"), ('approved_by', "''"), ('deleted', "0")]:
             try: c.execute(f"ALTER TABLE {table} ADD COLUMN {col} TEXT DEFAULT {default}")
             except sqlite3.OperationalError: pass
-            
+
     c.execute("UPDATE users SET firm_id = id WHERE firm_id IS NULL")
     conn.commit(); conn.close()
 
@@ -719,42 +720,42 @@ def index():
     conn = sqlite3.connect('cashbook.db'); conn.row_factory = sqlite3.Row; c = conn.cursor(); firm_id = session['firm_id']
     persons = c.execute("SELECT * FROM persons WHERE user_id = ? ORDER BY name ASC", (firm_id,)).fetchall()
     dasti_persons = c.execute("SELECT * FROM dasti_persons WHERE user_id = ? ORDER BY name ASC", (firm_id,)).fetchall()
-    
+
     incomes = c.execute("SELECT * FROM transactions WHERE user_id = ? AND type='income' AND deleted=0 ORDER BY date DESC, time DESC, id DESC", (firm_id,)).fetchall()
     expenses = c.execute("SELECT * FROM transactions WHERE user_id = ? AND type IN ('expense', 'batch_ledger_out') AND deleted=0 ORDER BY date ASC, time ASC, id ASC", (firm_id,)).fetchall()
-    
+
     total_in_actual = c.execute("SELECT SUM(amount) FROM transactions WHERE user_id = ? AND type IN ('income', 'dasti_voucher_in') AND status='approved' AND deleted=0", (firm_id,)).fetchone()[0] or 0.0
-    
-    # CRITICAL MATH FIX: We only subtract physical cash out (expense, dasti_out, dasti_voucher_out). 
+
+    # CRITICAL MATH FIX: We only subtract physical cash out (expense, dasti_out, dasti_voucher_out).
     # 'batch_ledger_out' (Slips) are ignored here so we don't double-deduct the firm's balance!
     total_out_actual = c.execute("SELECT SUM(amount) FROM transactions WHERE user_id = ? AND type IN ('expense', 'dasti_out', 'dasti_voucher_out') AND status='approved' AND deleted=0", (firm_id,)).fetchone()[0] or 0.0
-    
+
     summary_txns = c.execute("SELECT date, type, amount FROM transactions WHERE user_id=? AND deleted=0 AND status='approved'", (firm_id,)).fetchall()
     now = datetime.now()
     today_str = now.strftime('%Y-%m-%d')
     month_str = now.strftime('%Y-%m')
     year_str = now.strftime('%Y')
     week_ago_str = (now - timedelta(days=7)).strftime('%Y-%m-%d')
-    
+
     s_d_in = s_d_out = s_w_in = s_w_out = s_m_in = s_m_out = s_y_in = s_y_out = 0
     for r in summary_txns:
         amt, d, ttype = r['amount'], r['date'], r['type']
         is_in = ttype in ('income', 'dasti_voucher_in')
         is_out = ttype in ('expense', 'dasti_out', 'dasti_voucher_out')
-        
+
         if d.startswith(year_str):
-            if is_in: s_y_in += amt 
+            if is_in: s_y_in += amt
             elif is_out: s_y_out += amt
         if d.startswith(month_str):
-            if is_in: s_m_in += amt 
+            if is_in: s_m_in += amt
             elif is_out: s_m_out += amt
         if d >= week_ago_str:
-            if is_in: s_w_in += amt 
+            if is_in: s_w_in += amt
             elif is_out: s_w_out += amt
         if d == today_str:
-            if is_in: s_d_in += amt 
+            if is_in: s_d_in += amt
             elif is_out: s_d_out += amt
-    
+
     total_dasti_ledger = 0.0
     dasti_breakdown = []
     for p in persons:
@@ -764,7 +765,7 @@ def index():
         if owed > 0:
             total_dasti_ledger += owed
             dasti_breakdown.append({'name': p['name'], 'amount': owed})
-    
+
     conn.close()
     balance = total_in_actual - total_out_actual
     cats = get_categories(firm_id)
@@ -774,13 +775,13 @@ def index():
 def main_ledger():
     if 'user_id' not in session: return redirect(url_for('login'))
     conn = sqlite3.connect('cashbook.db'); conn.row_factory = sqlite3.Row; c = conn.cursor(); firm_id = session['firm_id']
-    
+
     txns = c.execute("SELECT * FROM transactions WHERE user_id = ? AND deleted=0 ORDER BY date DESC, time DESC, id DESC", (firm_id,)).fetchall()
     total_in = c.execute("SELECT SUM(amount) FROM transactions WHERE user_id = ? AND type IN ('income', 'dasti_voucher_in') AND status='approved' AND deleted=0", (firm_id,)).fetchone()[0] or 0.0
     total_out = c.execute("SELECT SUM(amount) FROM transactions WHERE user_id = ? AND type='expense' AND status='approved' AND deleted=0", (firm_id,)).fetchone()[0] or 0.0
     total_dasti = c.execute("SELECT SUM(amount) FROM transactions WHERE user_id = ? AND type='dasti_out' AND status='approved' AND deleted=0", (firm_id,)).fetchone()[0] or 0.0
     total_dasti_vouchers = c.execute("SELECT SUM(amount) FROM transactions WHERE user_id = ? AND type='dasti_voucher_out' AND status='approved' AND deleted=0", (firm_id,)).fetchone()[0] or 0.0
-    
+
     conn.close()
     balance = total_in - (total_out + total_dasti + total_dasti_vouchers)
     return render_template_string(MAIN_LEDGER_TEMPLATE, txns=txns, balance=balance, total_in=total_in, total_out=total_out, total_dasti=total_dasti, total_dasti_vouchers=total_dasti_vouchers, username=session['username'], active_page='main_ledger')
@@ -790,7 +791,7 @@ def dasti_ledger():
     if 'user_id' not in session: return redirect(url_for('login'))
     firm_id = session['firm_id']
     conn = sqlite3.connect('cashbook.db'); conn.row_factory = sqlite3.Row; c = conn.cursor()
-    
+
     total_in = c.execute("SELECT SUM(amount) FROM transactions WHERE user_id = ? AND type IN ('income', 'dasti_voucher_in') AND status='approved' AND deleted=0", (firm_id,)).fetchone()[0] or 0.0
     total_out = c.execute("SELECT SUM(amount) FROM transactions WHERE user_id = ? AND type IN ('expense', 'dasti_out', 'dasti_voucher_out') AND status='approved' AND deleted=0", (firm_id,)).fetchone()[0] or 0.0
     main_balance = total_in - total_out
@@ -798,7 +799,7 @@ def dasti_ledger():
     dasti_persons = c.execute("SELECT * FROM dasti_persons WHERE user_id = ? ORDER BY name ASC", (firm_id,)).fetchall()
     balances = []
     total_outstanding_dasti = 0.0
-    
+
     for p in dasti_persons:
         adv = c.execute("SELECT SUM(amount) FROM dasti_ledger WHERE user_id = ? AND dasti_person_id = ? AND type='advance' AND status='approved' AND deleted=0", (firm_id, p['id'])).fetchone()[0] or 0.0
         setl = c.execute("SELECT SUM(amount) FROM dasti_ledger WHERE user_id = ? AND dasti_person_id = ? AND type='settlement' AND status='approved' AND deleted=0", (firm_id, p['id'])).fetchone()[0] or 0.0
@@ -806,7 +807,7 @@ def dasti_ledger():
         balances.append({'id': p['id'], 'name': p['name'], 'net': net})
         if net > 0:
             total_outstanding_dasti += net
-    
+
     conn.close()
     return render_template_string(DASTI_LEDGER_TEMPLATE, balances=balances, balance=main_balance, total_outstanding_dasti=total_outstanding_dasti, username=session['username'], active_page='dasti_ledger')
 
@@ -817,7 +818,7 @@ def dasti_account(person_id):
     conn = sqlite3.connect('cashbook.db'); conn.row_factory = sqlite3.Row; c = conn.cursor()
     person = c.execute("SELECT * FROM dasti_persons WHERE id = ? AND user_id = ?", (person_id, firm_id)).fetchone()
     if not person: conn.close(); return redirect(url_for('dasti_ledger'))
-    
+
     txns = c.execute("SELECT * FROM dasti_ledger WHERE dasti_person_id = ? AND user_id = ? AND deleted=0 ORDER BY date DESC, time DESC, id DESC", (person_id, firm_id)).fetchall()
     advances = c.execute("SELECT SUM(amount) FROM dasti_ledger WHERE dasti_person_id = ? AND user_id = ? AND type='advance' AND status='approved' AND deleted=0", (person_id, firm_id)).fetchone()[0] or 0.0
     settlements = c.execute("SELECT SUM(amount) FROM dasti_ledger WHERE dasti_person_id = ? AND user_id = ? AND type='settlement' AND status='approved' AND deleted=0", (person_id, firm_id)).fetchone()[0] or 0.0
@@ -917,15 +918,15 @@ def reports():
     if 'user_id' not in session: return redirect(url_for('login'))
     firm_id = session['firm_id']
     conn = sqlite3.connect('cashbook.db'); conn.row_factory = sqlite3.Row; c = conn.cursor()
-    
+
     start_date = request.args.get('start_date', '')
     end_date = request.args.get('end_date', '')
     category = request.args.get('category', '')
     report_account = request.args.get('report_account', 'main')
-    
+
     query = "SELECT * FROM transactions WHERE user_id=? AND deleted=0 AND status='approved'"
     params = [firm_id]
-    
+
     if report_account.startswith('person_'):
         pid = report_account.split('_')[1]
         query = "SELECT * FROM person_ledger WHERE user_id=? AND person_id=? AND deleted=0 AND status='approved'"
@@ -934,7 +935,7 @@ def reports():
         did = report_account.split('_')[1]
         query = "SELECT * FROM dasti_ledger WHERE user_id=? AND dasti_person_id=? AND deleted=0 AND status='approved'"
         params = [firm_id, did]
-        
+
     if start_date:
         query += " AND date >= ?"
         params.append(start_date)
@@ -944,19 +945,19 @@ def reports():
     if category:
         query += " AND category = ?"
         params.append(category)
-        
+
     query += " ORDER BY date DESC, time DESC"
     results = c.execute(query, tuple(params)).fetchall()
-    
+
     total_in = sum(r['amount'] for r in results if r['type'] in ('income', 'settlement', 'dasti_voucher_in'))
-    
+
     # Reports should only sum physical money out, bypass 'batch_ledger_out' (Slips) to prevent double counting
     total_out = sum(r['amount'] for r in results if r['type'] in ('expense', 'advance', 'dasti_out', 'dasti_voucher_out'))
-    
+
     persons = c.execute("SELECT * FROM persons WHERE user_id = ? ORDER BY name ASC", (firm_id,)).fetchall()
     dasti_persons = c.execute("SELECT * FROM dasti_persons WHERE user_id = ? ORDER BY name ASC", (firm_id,)).fetchall()
     cats = get_categories(firm_id)
-    
+
     conn.close()
     return render_template_string(REPORTS_TEMPLATE, results=results, total_in=total_in, total_out=total_out, categories=cats, persons=persons, dasti_persons=dasti_persons, start_date=start_date, end_date=end_date, category=category, report_account=report_account, username=session['username'], active_page='reports')
 
@@ -965,9 +966,9 @@ def export_reports():
     if 'user_id' not in session: return redirect(url_for('login'))
     firm_id = session['firm_id']
     conn = sqlite3.connect('cashbook.db'); conn.row_factory = sqlite3.Row; c = conn.cursor()
-    
+
     start_date, end_date, category, report_account = request.args.get('start_date', ''), request.args.get('end_date', ''), request.args.get('category', ''), request.args.get('report_account', 'main')
-    
+
     query = "SELECT date, time, payment_mode, category, description, type, amount, approved_by FROM transactions WHERE user_id=? AND deleted=0 AND status='approved'"
     params = [firm_id]
     if report_account.startswith('person_'):
@@ -978,15 +979,15 @@ def export_reports():
         did = report_account.split('_')[1]
         query = "SELECT date, time, payment_mode, category, description, type, amount, approved_by FROM dasti_ledger WHERE user_id=? AND dasti_person_id=? AND deleted=0 AND status='approved'"
         params = [firm_id, did]
-        
+
     if start_date: query += " AND date >= ?"; params.append(start_date)
     if end_date: query += " AND date <= ?"; params.append(end_date)
     if category: query += " AND category = ?"; params.append(category)
-    query += " ORDER BY date ASC, time ASC" 
-    
+    query += " ORDER BY date ASC, time ASC"
+
     results = c.execute(query, tuple(params)).fetchall()
     conn.close()
-    
+
     def generate():
         data = StringIO()
         writer = csv.writer(data)
@@ -995,7 +996,7 @@ def export_reports():
         for r in results:
             writer.writerow((r['date'], r['time'], r['payment_mode'], r['category'], r['description'], r['type'], r['amount'], r['approved_by']))
             yield data.getvalue(); data.seek(0); data.truncate(0)
-            
+
     return Response(generate(), mimetype='text/csv', headers={"Content-Disposition": "attachment; filename=Firm_Report_Export.csv"})
 
 @app.route('/download_cash_json')
@@ -1020,11 +1021,11 @@ def edit_entry(table_name, row_id):
     if table_name not in ['transactions', 'person_ledger', 'dasti_ledger']: return "Invalid", 400
     conn = sqlite3.connect('cashbook.db'); conn.row_factory = sqlite3.Row; c = conn.cursor()
     entry = c.execute(f"SELECT * FROM {table_name} WHERE id=? AND user_id=?", (row_id, session['firm_id'])).fetchone()
-    
+
     if request.method == 'POST':
         date, time_v, mode, cat, desc, req_type, amt = request.form['date'], request.form['time'], request.form['payment_mode'], request.form['category'], request.form['description'], request.form['type'], float(request.form['amount'])
         approved_by = request.form.get('approved_by', entry['approved_by']) # Manual Admin Override
-        
+
         if entry['link_id']:
             c.execute("UPDATE transactions SET date=?, time=?, payment_mode=?, category=?, amount=?, approved_by=? WHERE link_id=? AND user_id=?", (date, time_v, mode, cat, amt, approved_by, entry['link_id'], session['firm_id']))
             c.execute("UPDATE person_ledger SET date=?, time=?, payment_mode=?, category=?, amount=?, approved_by=? WHERE link_id=? AND user_id=?", (date, time_v, mode, cat, amt, approved_by, entry['link_id'], session['firm_id']))
@@ -1048,20 +1049,20 @@ def manage_users():
 def edit_user(uid):
     if 'user_id' not in session or session.get('role') != 'superadmin': return redirect(url_for('index'))
     conn = sqlite3.connect('cashbook.db'); conn.row_factory = sqlite3.Row; c = conn.cursor()
-    
+
     if request.method == 'POST':
         uname = request.form['username']
         role = request.form['role']
         can_app = int(request.form.get('can_approve', 0))
         new_pw = request.form.get('password', '').strip()
-        
+
         if new_pw:
             c.execute("UPDATE users SET username=?, role=?, can_approve=?, password=? WHERE id=? AND firm_id=?", (uname, role, can_app, generate_password_hash(new_pw), uid, session['firm_id']))
         else:
             c.execute("UPDATE users SET username=?, role=?, can_approve=? WHERE id=? AND firm_id=?", (uname, role, can_app, uid, session['firm_id']))
         conn.commit(); conn.close()
         return redirect(url_for('manage_users'))
-        
+
     user_data = c.execute("SELECT * FROM users WHERE id=? AND firm_id=?", (uid, session['firm_id'])).fetchone()
     conn.close()
     return render_template_string(EDIT_USER_TEMPLATE, edit_user=user_data, username=session['username'], active_page='users')
@@ -1108,7 +1109,7 @@ def add_express():
     if 'user_id' not in session: return redirect(url_for('login'))
     txn_status = 'approved' if session.get('can_approve') == 1 else 'pending'
     approver = session['username'] if txn_status == 'approved' else ''
-    
+
     conn = sqlite3.connect('cashbook.db'); c = conn.cursor()
     link_id = uuid.uuid4().hex[:12]
     c.execute("INSERT INTO transactions (user_id, date, time, payment_mode, category, description, type, amount, link_id, status, approved_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -1122,23 +1123,23 @@ def add_transfer():
     firm_id = session['firm_id']
     date_val, time_val, direction, person_id = request.form['date'], request.form['time'], request.form['direction'], request.form['person_id']
     desc, amt = request.form['description'].strip(), float(request.form['amount'])
-    
+
     txn_status = 'approved' if session.get('can_approve') == 1 else 'pending'
     approver = session['username'] if txn_status == 'approved' else ''
-    
+
     conn = sqlite3.connect('cashbook.db'); conn.row_factory = sqlite3.Row; c = conn.cursor()
     person = c.execute("SELECT name FROM persons WHERE id = ? AND user_id = ?", (person_id, firm_id)).fetchone()
     if not person: conn.close(); return redirect(request.referrer)
-    
+
     person_name, link_id = person['name'], uuid.uuid4().hex[:12]
-    
+
     if direction == 'main_to_person':
         c.execute("INSERT INTO transactions (user_id, date, time, payment_mode, category, description, type, amount, link_id, status, approved_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (firm_id, date_val, time_val, 'Cash', 'General', f"Transfer to {person_name}: {desc}", 'dasti_out', amt, link_id, txn_status, approver))
         c.execute("INSERT INTO person_ledger (user_id, person_id, date, time, payment_mode, category, description, type, amount, link_id, status, approved_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (firm_id, person_id, date_val, time_val, 'Cash', 'General', f"Rcvd from Main: {desc}", 'advance', amt, link_id, txn_status, approver))
     else:
         c.execute("INSERT INTO person_ledger (user_id, person_id, date, time, payment_mode, category, description, type, amount, link_id, status, approved_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (firm_id, person_id, date_val, time_val, 'Cash', 'General', f"Paid to Main: {desc}", 'settlement', amt, link_id, txn_status, approver))
         c.execute("INSERT INTO transactions (user_id, date, time, payment_mode, category, description, type, amount, link_id, status, approved_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (firm_id, date_val, time_val, 'Cash', 'General', f"Transfer from {person_name}: {desc}", 'income', amt, link_id, txn_status, approver))
-                  
+
     conn.commit(); conn.close()
     return redirect(request.referrer or url_for('index'))
 
@@ -1149,18 +1150,18 @@ def add_batch_unified():
     date_val, time_val, mode, txn_nature = request.form['date'], request.form['time'], request.form['payment_mode'], request.form['txn_nature']
     primary_account_raw = request.form['primary_account']
     new_account_name = request.form.get('new_account_name', '').strip()
-    
+
     cats, cust_cats, descs, amts = request.form.getlist('category[]'), request.form.getlist('custom_category[]'), request.form.getlist('description[]'), request.form.getlist('amount[]')
-    
+
     txn_status = 'approved' if session.get('can_approve') == 1 else 'pending'
     approver = session['username'] if txn_status == 'approved' else ''
-    
+
     conn = sqlite3.connect('cashbook.db'); conn.row_factory = sqlite3.Row; c = conn.cursor()
     existing_cats = get_categories(firm_id)
     account_type = 'main'
     primary_id = None
     person_name = ''
-    
+
     if primary_account_raw == 'new_dasti':
         c.execute("INSERT INTO dasti_persons (user_id, name) VALUES (?, ?)", (firm_id, new_account_name))
         primary_id = c.lastrowid
@@ -1179,7 +1180,7 @@ def add_batch_unified():
         account_type = 'dasti'
         res = c.execute("SELECT name FROM dasti_persons WHERE id=? AND user_id=?", (primary_id, firm_id)).fetchone()
         if res: person_name = res['name']
-        
+
     for i in range(len(descs)):
         if amts[i].strip() and float(amts[i]) >= 0:
             amt, desc = float(amts[i]), descs[i].strip()
@@ -1240,16 +1241,16 @@ def register():
         c.execute("INSERT INTO users (username, password, firm_name, role, can_approve) VALUES (?, ?, ?, 'superadmin', 1)", (request.form['username'], generate_password_hash(request.form['password']), request.form['firm_name']))
         user_id = c.lastrowid
         c.execute("UPDATE users SET firm_id = ? WHERE id = ?", (user_id, user_id))
-        
+
         session['user_id'], session['firm_id'], session['username'], session['firm_name'] = user_id, user_id, request.form['username'], request.form['firm_name']
         session['role'], session['can_approve'] = 'superadmin', 1
-        
+
         opening_balance = float(request.form.get('opening_balance', 0))
         if opening_balance > 0:
             now = datetime.now()
             c.execute("INSERT INTO transactions (user_id, date, time, payment_mode, category, description, type, amount, link_id, status, approved_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'approved', ?)",
                       (user_id, now.strftime('%Y-%m-%d'), now.strftime('%H:%M'), 'Cash', 'General', 'Opening Balance', 'income', opening_balance, uuid.uuid4().hex[:12], session['username']))
-        
+
         conn.commit(); conn.close()
         return redirect(url_for('index'))
     return render_template_string(REGISTER_TEMPLATE)
