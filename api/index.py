@@ -1329,7 +1329,6 @@ BULK_EDIT_DATE_TEMPLATE = '''<!DOCTYPE html><html><head><title>Bulk Date Correct
         
         {% if has_searched %}
         <div class="card" style="padding: 0;">
-            <!-- Added ID to form for Javascript targeting -->
             <form action="/bulk_edit_date" method="POST" id="bulkForm">
                 <input type="hidden" name="action" value="update_dates">
                 
@@ -1338,15 +1337,10 @@ BULK_EDIT_DATE_TEMPLATE = '''<!DOCTYPE html><html><head><title>Bulk Date Correct
                     <div style="display: flex; gap: 15px; align-items: flex-end; flex-wrap: wrap;">
                         <div class="form-group" style="margin-bottom: 0; min-width: 250px;">
                             <label style="color:#92400e;">Set New Date For Selected Entries:</label>
-                            <!-- Removed the HTML 'required' tag so the Delete button isn't blocked by it -->
                             <input type="date" name="new_date" id="new_date_input" style="border-color: var(--warning); font-weight:bold; background: white;">
                         </div>
-                        
-                        <!-- UPDATE BUTTON -->
                         <button type="submit" class="btn btn-warning" onclick="if(!document.getElementById('new_date_input').value){ alert('Please select a New Date first!'); return false; } document.getElementById('bulkForm').action='/bulk_edit_date'; return confirm('Are you sure you want to change the date for ALL selected entries?');" style="height: 43px; padding: 0 25px;">✏️ Update Selected Dates</button>
-                        
-                        <!-- MASS DELETE BUTTON -->
-                        <button type="submit" class="btn btn-danger" onclick="document.getElementById('bulkForm').action='/bulk_delete'; return confirm('⚠️ Are you sure you want to move ALL selected entries to the Trash?');" style="height: 43px; padding: 0 25px; margin-left: auto; box-shadow: 0 4px 6px rgba(220,38,38,0.3);">🗑️ Delete Selected Entries</button>
+                        <button type="submit" class="btn btn-danger" onclick="document.getElementById('bulkForm').action='/bulk_delete'; return confirm('⚠️ Are you sure you want to move ALL selected entries to the Trash?');" style="height: 43px; padding: 0 25px; margin-left: auto;">🗑️ Delete Selected</button>
                     </div>
 
                     <!-- DYNAMIC SUMMARY BAR -->
@@ -1389,92 +1383,73 @@ BULK_EDIT_DATE_TEMPLATE = '''<!DOCTYPE html><html><head><title>Bulk Date Correct
                     </div>
                 </div>
 
-                <div style="padding: 20px;">
+                <div style="padding: 10px 0;">
                     
-                    <!-- POSITIVE ENTRIES TABLE (+ IN) -->
-                    <h3 style="margin-top: 0; color: #065f46; background: #d1fae5; padding: 10px 15px; border-radius: 8px 8px 0 0; margin-bottom: 0;">🟢 Receipts & Cash In (+)</h3>
-                    <table id="pos-table" style="width: 100%; border: none; margin-bottom: 30px; border-bottom: 2px solid #a7f3d0; background: white;">
-                        <tr style="background: #ecfdf5;">
-                            <th style="padding-left: 20px; width: 40px; padding-top: 10px; padding-bottom: 10px;">
-                                <input type="checkbox" onclick="toggleTableCheckboxes(this, 'pos-table')" style="width:16px; height:16px; cursor:pointer;" title="Select All Receipts">
-                            </th>
-                            <th style="color: #065f46;">Current Date & Time</th>
-                            <th style="color: #065f46;">Category / Detail</th>
-                            <th style="text-align: right; padding-right: 20px; color: #065f46;">Amount</th>
-                            <th style="text-align: center; color: #065f46;">Act</th>
+                    <!-- UNIFIED LIST TABLE EXACTLY LIKE IMAGE -->
+                    <table style="width: 100%; border-collapse: collapse; background: white;">
+                        <tr style="border-bottom: 2px solid #e5e7eb; display: none;">
+                            <!-- Hidden header row to keep structural integrity but match the clean image layout -->
+                            <th><input type="checkbox" id="master-checkbox" onclick="toggleAllCheckboxes(this)"></th>
+                            <th>Date</th>
+                            <th>Detail</th>
+                            <th>Amount</th>
+                            <th>Act</th>
                         </tr>
-                        {% set pos_count = namespace(val=0) %}
-                        {% for t in results %}
-                            {% if t.type not in ['expense', 'direct_out', 'dasti_out', 'batch_ledger_out', 'dasti_voucher_out', 'split_expense', 'settlement'] %}
-                                {% set pos_count.val = pos_count.val + 1 %}
-                                <tr style="background: {% if t.status == 'pending' %}#fefce8{% else %}transparent{% endif %}; border-bottom: 1px solid #f3f4f6;">
-                                    <td style="padding-left: 20px; padding-top: 10px; padding-bottom: 10px;">
-                                        <input type="checkbox" name="selected_links" class="row-checkbox" value="{{ t.link_id }}" 
-                                            data-amount="{{ t.amount }}" 
-                                            data-txn-type="in" 
-                                            data-status="{{ t.status }}"
-                                            data-desc="{{ t.get('description', '') | replace('\"', '&quot;') | replace('\n', ' ') }}"
-                                            onchange="calculateSelection()" 
-                                            style="width:16px; height:16px; cursor:pointer;">
-                                    </td>
-                                    <td><span style="font-weight: 500;">{{ t.date }}</span><br><span style="font-size: 0.85em; color: #6b7280;">{{ t.time }}</span></td>
-                                    <td><span class="badge badge-mode">{{ t.category }}</span><br><span style="white-space: pre-wrap;">{{ t.get('description', '') }}</span></td>
-                                    <td style="text-align: right; padding-right: 20px;">
-                                        {% if t.status == 'pending' %}<span class="badge" style="background:#fef3c7; color:#b45309; border:1px solid #fcd34d; font-size: 0.7em; padding: 2px 6px;">⏳ TEMP</span><br>{% endif %}
-                                        <strong style="color:green;">+ ₹{{ "{:,.2f}".format(t.amount | default(0)) }}</strong>
-                                    </td>
-                                    <td style="text-align: center;">
-                                        <a href="/edit/transactions/{{ t.id }}" target="_blank" class="btn btn-sm" style="background:#f59e0b;color:white;" title="Edit this entry">✏️</a>
-                                    </td>
-                                </tr>
-                            {% endif %}
-                        {% endfor %}
-                        {% if pos_count.val == 0 %}
-                            <tr><td colspan="5" style="text-align:center; color:#9ca3af; padding: 20px;">No receipts (+ IN) found matching criteria.</td></tr>
-                        {% endif %}
-                    </table>
+                        
+                        <!-- Checkbox to select all, placed dynamically at the top -->
+                        <div style="padding: 10px 20px; border-bottom: 1px solid #e5e7eb; background: #f8fafc;">
+                            <label style="cursor: pointer; font-weight: bold; color: #4b5563; font-size: 0.9em;">
+                                <input type="checkbox" id="master-checkbox-ui" onclick="toggleAllCheckboxes(this)" style="width:16px; height:16px; margin-right: 8px; vertical-align: middle;">
+                                Select All Results
+                            </label>
+                        </div>
 
-                    <!-- NEGATIVE ENTRIES TABLE (- OUT) -->
-                    <h3 style="margin-top: 0; color: #991b1b; background: #fee2e2; padding: 10px 15px; border-radius: 8px 8px 0 0; margin-bottom: 0;">🔴 Payments & Cash Out (-)</h3>
-                    <table id="neg-table" style="width: 100%; border: none; margin-bottom: 10px; border-bottom: 2px solid #fecaca; background: white;">
-                        <tr style="background: #fef2f2;">
-                            <th style="padding-left: 20px; width: 40px; padding-top: 10px; padding-bottom: 10px;">
-                                <input type="checkbox" onclick="toggleTableCheckboxes(this, 'neg-table')" style="width:16px; height:16px; cursor:pointer;" title="Select All Payments">
-                            </th>
-                            <th style="color: #991b1b;">Current Date & Time</th>
-                            <th style="color: #991b1b;">Category / Detail</th>
-                            <th style="text-align: right; padding-right: 20px; color: #991b1b;">Amount</th>
-                            <th style="text-align: center; color: #991b1b;">Act</th>
-                        </tr>
-                        {% set neg_count = namespace(val=0) %}
                         {% for t in results %}
-                            {% if t.type in ['expense', 'direct_out', 'dasti_out', 'batch_ledger_out', 'dasti_voucher_out', 'split_expense', 'settlement'] %}
-                                {% set neg_count.val = neg_count.val + 1 %}
-                                <tr style="background: {% if t.status == 'pending' %}#fefce8{% else %}transparent{% endif %}; border-bottom: 1px solid #f3f4f6;">
-                                    <td style="padding-left: 20px; padding-top: 10px; padding-bottom: 10px;">
-                                        <input type="checkbox" name="selected_links" class="row-checkbox" value="{{ t.link_id }}" 
-                                            data-amount="{{ t.amount }}" 
-                                            data-txn-type="out" 
-                                            data-status="{{ t.status }}"
-                                            data-desc="{{ t.get('description', '') | replace('\"', '&quot;') | replace('\n', ' ') }}"
-                                            onchange="calculateSelection()" 
-                                            style="width:16px; height:16px; cursor:pointer;">
-                                    </td>
-                                    <td><span style="font-weight: 500;">{{ t.date }}</span><br><span style="font-size: 0.85em; color: #6b7280;">{{ t.time }}</span></td>
-                                    <td><span class="badge badge-mode">{{ t.category }}</span><br><span style="white-space: pre-wrap;">{{ t.get('description', '') }}</span></td>
-                                    <td style="text-align: right; padding-right: 20px;">
-                                        {% if t.status == 'pending' %}<span class="badge" style="background:#fef3c7; color:#b45309; border:1px solid #fcd34d; font-size: 0.7em; padding: 2px 6px;">⏳ TEMP</span><br>{% endif %}
-                                        <strong style="color:red;">- ₹{{ "{:,.2f}".format(t.amount | default(0)) }}</strong>
-                                    </td>
-                                    <td style="text-align: center;">
-                                        <a href="/edit/transactions/{{ t.id }}" target="_blank" class="btn btn-sm" style="background:#f59e0b;color:white;" title="Edit this entry">✏️</a>
-                                    </td>
-                                </tr>
-                            {% endif %}
+                        <tr style="border-bottom: 1px solid #e5e7eb; transition: background 0.2s; background: {% if t.status == 'pending' %}#fefce8{% else %}white{% endif %};">
+                            
+                            <!-- 1. Checkbox -->
+                            <td style="padding: 20px; width: 50px; text-align: center; vertical-align: middle;">
+                                <input type="checkbox" name="selected_links" class="row-checkbox" value="{{ t.link_id }}" 
+                                    data-amount="{{ t.amount }}" 
+                                    data-txn-type="{% if t.type in ['expense', 'direct_out', 'dasti_out', 'batch_ledger_out', 'dasti_voucher_out', 'split_expense', 'settlement'] %}out{% else %}in{% endif %}" 
+                                    data-status="{{ t.status }}"
+                                    data-desc="{{ t.get('description', '') | replace('\"', '&quot;') | replace('\n', ' ') }}"
+                                    onchange="calculateSelection()" 
+                                    style="width:16px; height:16px; cursor:pointer;">
+                            </td>
+                            
+                            <!-- 2. Date & Time -->
+                            <td style="vertical-align: middle; padding: 20px 10px; width: 25%;">
+                                <div style="font-weight: 500; color: #374151; font-size: 0.95em;">{{ t.date }}</div>
+                                <div style="font-size: 0.8em; color: #9ca3af; margin-top: 4px;">{{ t.time }}</div>
+                            </td>
+                            
+                            <!-- 3. Centered Pill and Description -->
+                            <td style="text-align: center; vertical-align: middle; padding: 20px 10px; width: 40%;">
+                                <div style="display: inline-block; background-color: #e0e7ff; color: #4338ca; padding: 4px 14px; border-radius: 9999px; font-size: 0.75em; font-weight: 700; text-transform: uppercase; margin-bottom: 6px; letter-spacing: 0.5px;">{{ t.category }}</div>
+                                <div style="font-size: 0.85em; color: #4b5563; text-transform: uppercase;">{{ t.get('description', '') }}</div>
+                            </td>
+                            
+                            <!-- 4. Formatted Amount -->
+                            <td style="text-align: right; vertical-align: middle; padding: 20px 15px; font-size: 1.1em; font-weight: 700; width: 20%;">
+                                {% if t.status == 'pending' %}<div style="font-size:0.6em; color:#b45309; background:#fef3c7; padding:2px 6px; border-radius:4px; display:inline-block; margin-bottom:4px; border:1px solid #fcd34d;">⏳ TEMP</div><br>{% endif %}
+                                {% if t.type in ['expense', 'direct_out', 'dasti_out', 'batch_ledger_out', 'dasti_voucher_out', 'split_expense', 'settlement'] %}
+                                    <span style="color: #dc2626;">- ₹{{ "{:,.2f}".format(t.amount | default(0)) }}</span>
+                                {% else %}
+                                    <span style="color: #16a34a;">+ ₹{{ "{:,.2f}".format(t.amount | default(0)) }}</span>
+                                {% endif %}
+                            </td>
+                            
+                            <!-- 5. Styled Edit Button -->
+                            <td style="text-align: center; vertical-align: middle; padding: 20px; width: 80px;">
+                                <a href="/edit/transactions/{{ t.id }}" target="_blank" style="background-color: #f59e0b; color: white; display: inline-flex; align-items: center; justify-content: center; width: 38px; height: 32px; border-radius: 8px; text-decoration: none;" title="Edit this entry">
+                                    ✏️
+                                </a>
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr><td colspan="5" style="text-align:center; color:#9ca3af; padding: 40px;">No entries found matching criteria.</td></tr>
                         {% endfor %}
-                        {% if neg_count.val == 0 %}
-                            <tr><td colspan="5" style="text-align:center; color:#9ca3af; padding: 20px;">No payments (- OUT) found matching criteria.</td></tr>
-                        {% endif %}
                     </table>
 
                 </div>
@@ -1490,9 +1465,8 @@ BULK_EDIT_DATE_TEMPLATE = '''<!DOCTYPE html><html><head><title>Bulk Date Correct
         </div>
         
         <script>
-            function toggleTableCheckboxes(masterCheckbox, tableId) {
-                let table = document.getElementById(tableId);
-                let checkboxes = table.querySelectorAll('.row-checkbox');
+            function toggleAllCheckboxes(masterCheckbox) {
+                let checkboxes = document.querySelectorAll('.row-checkbox');
                 checkboxes.forEach(cb => cb.checked = masterCheckbox.checked);
                 calculateSelection();
             }
@@ -2680,233 +2654,6 @@ AUDIT_TEMPLATE = '''<!DOCTYPE html><html><head><title>Ledger Audit & Diagnostics
     </script>
 </body></html>'''
 
-BULK_EDIT_DATE_TEMPLATE = '''<!DOCTYPE html><html><head><title>Bulk Date Correction</title>''' + BASE_STYLE + '''</head><body>
-    <div class="container">''' + NAVBAR_HTML + '''
-        <div class="card">
-            <h3 style="margin-top: 0; color: var(--primary);">📅 Search & Bulk Update Dates</h3>
-            <form action="/bulk_edit_date" method="POST" style="display: flex; gap: 15px; align-items: flex-end; flex-wrap: wrap;">
-                <input type="hidden" name="action" value="search">
-                <div class="form-group flex-1" style="min-width: 130px;"><label>From Date</label><input type="date" name="start_date" value="{{ start_date }}" required></div>
-                <div class="form-group flex-1" style="min-width: 130px;"><label>To Date</label><input type="date" name="end_date" value="{{ end_date }}" required></div>
-                <div class="form-group flex-1" style="min-width: 130px;"><label>Amount (Opt)</label><input type="number" step="0.01" name="search_amount" value="{{ search_amount }}" placeholder="Exact ₹"></div>
-                <div class="form-group flex-2" style="min-width: 180px; flex: 2;"><label>Detail / Desc (Opt)</label><input type="text" name="search_desc" value="{{ search_desc }}" placeholder="Search text..."></div>
-                <button class="btn" style="background:indigo; height: 45px; padding: 10px 25px;" type="submit">🔍 Search</button>
-            </form>
-        </div>
-        
-        {% if has_searched %}
-        <div class="card" style="padding: 0;">
-            <form action="/bulk_edit_date" method="POST" onsubmit="return confirm('Are you sure you want to change the date for ALL selected entries?');">
-                <input type="hidden" name="action" value="update_dates">
-                
-                <div style="padding: 15px 20px; background: #fffbeb; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 15px;">
-                    <div style="display: flex; gap: 15px; align-items: flex-end; flex-wrap: wrap;">
-                        <div class="form-group" style="margin-bottom: 0; min-width: 250px;">
-                            <label style="color:#92400e;">Set New Date For Selected Entries:</label>
-                            <input type="date" name="new_date" required style="border-color: var(--warning); font-weight:bold; background: white;">
-                        </div>
-                        <button type="submit" class="btn btn-warning" style="height: 43px; padding: 0 25px;">✏️ Update Selected Dates</button>
-                    </div>
-
-                    <!-- DYNAMIC SUMMARY BAR -->
-                    <div style="display: flex; flex-wrap: wrap; gap: 20px; align-items: center; background: #fef3c7; padding: 10px 15px; border-radius: 8px; border: 1px solid #fde68a;">
-                        <div style="display: flex; flex-direction: column; min-width: 100px;">
-                            <span style="color:#92400e; font-weight:bold; font-size: 0.9em;">Total Selected</span>
-                            <strong id="calc-count" style="font-size: 1.3em;">0</strong>
-                        </div>
-                        <div style="display: flex; flex-direction: column; min-width: 100px;">
-                            <span style="color:#047857; font-weight:bold; font-size: 0.9em;">Approved</span>
-                            <strong id="calc-approved" style="font-size: 1.3em;">0</strong>
-                        </div>
-                        <div style="display: flex; flex-direction: column; min-width: 100px;">
-                            <span style="color:#b45309; font-weight:bold; font-size: 0.9em;">Temp (Pending)</span>
-                            <strong id="calc-temp" style="font-size: 1.3em;">0</strong>
-                        </div>
-                        
-                        <div style="border-left: 2px solid #fcd34d; height: 35px; margin: 0 10px;"></div>
-
-                        <div style="display: flex; flex-direction: column; min-width: 140px;">
-                            <span style="color: var(--success); font-weight:bold; font-size: 0.9em;">Total Receipts (+)</span>
-                            <strong id="calc-positive" style="font-size: 1.3em;">₹0.00</strong>
-                        </div>
-                        <div style="display: flex; flex-direction: column; min-width: 140px;">
-                            <span style="color: var(--danger); font-weight:bold; font-size: 0.9em;">Total Payments (-)</span>
-                            <strong id="calc-negative" style="font-size: 1.3em;">₹0.00</strong>
-                        </div>
-
-                        <!-- TARGET MATCH INPUTS -->
-                        <div style="display: flex; gap: 10px; margin-left: auto; background: white; padding: 8px; border-radius: 6px; border: 1px dashed #d1d5db;">
-                            <div class="form-group" style="margin: 0;">
-                                <label style="font-size: 0.75em; color: var(--success);">Target Match (+)</label>
-                                <input type="number" id="target-pos" placeholder="e.g. 5000" onkeyup="calculateSelection()" onchange="calculateSelection()" style="padding: 4px; width: 100px; font-size: 0.9em; border-color: var(--success);">
-                            </div>
-                            <div class="form-group" style="margin: 0;">
-                                <label style="font-size: 0.75em; color: var(--danger);">Target Match (-)</label>
-                                <input type="number" id="target-neg" placeholder="e.g. 1200" onkeyup="calculateSelection()" onchange="calculateSelection()" style="padding: 4px; width: 100px; font-size: 0.9em; border-color: var(--danger);">
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                
-                <table style="width: 100%; border: none;">
-                    <tr>
-                        <th style="padding-left: 20px; width: 40px;">
-                            <input type="checkbox" id="master-checkbox" onclick="toggleAllCheckboxes(this)" style="width:16px; height:16px; cursor:pointer;">
-                        </th>
-                        <th>Current Date & Time</th>
-                        <th>Category / Detail</th>
-                        <th style="text-align: right; padding-right: 20px;">Amount</th>
-                        <th style="text-align: center;">Act</th>
-                    </tr>
-                    {% for t in results %}
-                    <tr style="background: {% if t.status == 'pending' %}#fffbeb{% else %}transparent{% endif %};">
-                        <td style="padding-left: 20px;">
-                            <input type="checkbox" name="selected_links" class="row-checkbox" value="{{ t.link_id }}" 
-                                   data-amount="{{ t.amount }}" 
-                                   data-txn-type="{% if t.type in ['expense', 'direct_out', 'dasti_out', 'batch_ledger_out', 'dasti_voucher_out', 'split_expense', 'settlement'] %}out{% else %}in{% endif %}" 
-                                   data-status="{{ t.status }}"
-                                   data-desc="{{ t.get('description', '') | replace('\"', '&quot;') | replace('\n', ' ') }}"
-                                   onchange="calculateSelection()" 
-                                   style="width:16px; height:16px; cursor:pointer;">
-                        </td>
-                        <td><span style="font-weight: 500;">{{ t.date }}</span><br><span style="font-size: 0.85em; color: #6b7280;">{{ t.time }}</span></td>
-                        <td><span class="badge badge-mode">{{ t.category }}</span><br><span style="white-space: pre-wrap;">{{ t.get('description', '') }}</span></td>
-                        <td style="text-align: right; padding-right: 20px;">
-                            {% if t.status == 'pending' %}<span class="badge" style="background:#fef3c7; color:#b45309; border:1px solid #fcd34d; font-size: 0.7em; padding: 2px 6px;">⏳ TEMP</span><br>{% endif %}
-                            {% if t.type in ['expense', 'direct_out', 'dasti_out', 'batch_ledger_out', 'dasti_voucher_out', 'split_expense', 'settlement'] %}
-                                <strong style="color:red;">- ₹{{ "{:,.2f}".format(t.amount | default(0)) }}</strong>
-                            {% else %}
-                                <strong style="color:green;">+ ₹{{ "{:,.2f}".format(t.amount | default(0)) }}</strong>
-                            {% endif %}
-                        </td>
-                        <td style="text-align: center;">
-                            <a href="/edit/transactions/{{ t.id }}" class="btn btn-sm" style="background:#f59e0b;color:white;" title="Edit this entry">✏️</a>
-                        </td>
-                    </tr>
-                    {% else %}
-                    <tr><td colspan="5" style="text-align:center; color:#9ca3af; padding: 40px;">No entries found matching criteria.</td></tr>
-                    {% endfor %}
-                </table>
-                
-                <!-- AI RECONCILIATION SUGGESTION PANEL -->
-                <div id="suggestion-panel" style="margin: 20px; padding: 15px; background: #f0fdf4; border: 2px solid #86efac; border-radius: 8px; display: none;">
-                    <h4 style="margin-top: 0; color: #166534; display: flex; align-items: center; gap: 8px;">🤖 Match Diagnostics</h4>
-                    <div id="pos-suggestion" style="margin-bottom: 8px; font-size: 0.95em; color: #065f46;"></div>
-                    <div id="neg-suggestion" style="font-size: 0.95em; color: #991b1b;"></div>
-                </div>
-
-            </form>
-        </div>
-        
-        <script>
-            function toggleAllCheckboxes(masterCheckbox) {
-                let checkboxes = document.querySelectorAll('.row-checkbox');
-                checkboxes.forEach(cb => cb.checked = masterCheckbox.checked);
-                calculateSelection();
-            }
-
-            function calculateSelection() {
-                let checkboxes = document.querySelectorAll('.row-checkbox');
-                let count = 0;
-                let tempCount = 0;
-                let approvedCount = 0;
-                let totalPositive = 0;
-                let totalNegative = 0;
-
-                let selectedPos = []; let unselectedPos = [];
-                let selectedNeg = []; let unselectedNeg = [];
-
-                checkboxes.forEach(cb => {
-                    let amount = parseFloat(cb.getAttribute('data-amount')) || 0;
-                    let type = cb.getAttribute('data-txn-type');
-                    let status = cb.getAttribute('data-status');
-                    
-                    if (cb.checked) {
-                        count++;
-                        if (status === 'pending') tempCount++;
-                        else approvedCount++;
-
-                        if (type === 'in') { totalPositive += amount; selectedPos.push(cb); }
-                        else { totalNegative += amount; selectedNeg.push(cb); }
-                    } else {
-                        if (type === 'in') { unselectedPos.push(cb); }
-                        else { unselectedNeg.push(cb); }
-                    }
-                });
-
-                let fmt = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' });
-                document.getElementById('calc-count').innerText = count;
-                document.getElementById('calc-temp').innerText = tempCount;
-                document.getElementById('calc-approved').innerText = approvedCount;
-                document.getElementById('calc-positive').innerText = fmt.format(totalPositive).replace('₹', '₹');
-                document.getElementById('calc-negative').innerText = fmt.format(totalNegative).replace('₹', '₹');
-
-                let targetPosRaw = document.getElementById('target-pos').value;
-                let targetNegRaw = document.getElementById('target-neg').value;
-                let targetPos = parseFloat(targetPosRaw) || 0;
-                let targetNeg = parseFloat(targetNegRaw) || 0;
-                
-                let panel = document.getElementById('suggestion-panel');
-                let pSugg = document.getElementById('pos-suggestion');
-                let nSugg = document.getElementById('neg-suggestion');
-                
-                pSugg.innerHTML = "";
-                nSugg.innerHTML = "";
-
-                if (targetPosRaw !== "" || targetNegRaw !== "") {
-                    panel.style.display = 'block';
-
-                    if (targetPosRaw !== "") {
-                        let diffPos = totalPositive - targetPos;
-                        if (Math.abs(diffPos) < 0.01) {
-                            pSugg.innerHTML = "<strong>Positive (+):</strong> ✅ Balances match perfectly!";
-                        } else if (diffPos > 0) {
-                            let matches = selectedPos.filter(cb => Math.abs(parseFloat(cb.dataset.amount) - diffPos) < 0.01);
-                            if (matches.length > 0) {
-                                pSugg.innerHTML = `<strong>Positive (+):</strong> You selected ₹${diffPos.toFixed(2)} too much. <br>💡 <strong>Suggestion: UNCHECK</strong> ➔ "${matches[0].dataset.desc}" (₹${diffPos.toFixed(2)})`;
-                            } else {
-                                pSugg.innerHTML = `<strong>Positive (+):</strong> You selected ₹${diffPos.toFixed(2)} too much. (No single selected voucher matches this exact amount).`;
-                            }
-                        } else {
-                            let need = Math.abs(diffPos);
-                            let matches = unselectedPos.filter(cb => Math.abs(parseFloat(cb.dataset.amount) - need) < 0.01);
-                            if (matches.length > 0) {
-                                pSugg.innerHTML = `<strong>Positive (+):</strong> You are short by ₹${need.toFixed(2)}. <br>💡 <strong>Suggestion: CHECK</strong> ➔ "${matches[0].dataset.desc}" (₹${need.toFixed(2)})`;
-                            } else {
-                                pSugg.innerHTML = `<strong>Positive (+):</strong> You are short by ₹${need.toFixed(2)}. (Consider creating a new entry for this exact amount).`;
-                            }
-                        }
-                    }
-
-                    if (targetNegRaw !== "") {
-                        let diffNeg = totalNegative - targetNeg;
-                        if (Math.abs(diffNeg) < 0.01) {
-                            nSugg.innerHTML = "<strong>Negative (-):</strong> ✅ Balances match perfectly!";
-                        } else if (diffNeg > 0) {
-                            let matches = selectedNeg.filter(cb => Math.abs(parseFloat(cb.dataset.amount) - diffNeg) < 0.01);
-                            if (matches.length > 0) {
-                                nSugg.innerHTML = `<strong>Negative (-):</strong> You selected ₹${diffNeg.toFixed(2)} too much. <br>💡 <strong>Suggestion: UNCHECK</strong> ➔ "${matches[0].dataset.desc}" (₹${diffNeg.toFixed(2)})`;
-                            } else {
-                                nSugg.innerHTML = `<strong>Negative (-):</strong> You selected ₹${diffNeg.toFixed(2)} too much. (No single selected voucher matches this exact amount).`;
-                            }
-                        } else {
-                            let need = Math.abs(diffNeg);
-                            let matches = unselectedNeg.filter(cb => Math.abs(parseFloat(cb.dataset.amount) - need) < 0.01);
-                            if (matches.length > 0) {
-                                nSugg.innerHTML = `<strong>Negative (-):</strong> You are short by ₹${need.toFixed(2)}. <br>💡 <strong>Suggestion: CHECK</strong> ➔ "${matches[0].dataset.desc}" (₹${need.toFixed(2)})`;
-                            } else {
-                                nSugg.innerHTML = `<strong>Negative (-):</strong> You are short by ₹${need.toFixed(2)}. (Consider creating a new entry for this exact amount).`;
-                            }
-                        }
-                    }
-                } else {
-                    panel.style.display = 'none';
-                }
-            }
-        </script>
-        {% endif %}
-    </div>
-</body></html>'''
 
 
 # --- FIREBASE HELPER LOGIC ---
@@ -5330,4 +5077,4 @@ def auto_fix_splits():
     return redirect(url_for('audit_ledger'))
 
 if __name__ == '__main__':
-    pass
+      pass
